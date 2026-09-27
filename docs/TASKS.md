@@ -11,7 +11,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 |---|---|---|---|---|---|
 | T-001 | Backend scaffold | 1 | — | claude | done |
 | T-002 | Frontend scaffold | 1 | — | codex | done |
-| T-003 | DB models + initial migration | 1 | T-001 | — | todo |
+| T-003 | DB models + initial migration | 1 | T-001 | codex | in-progress |
 | T-004 | Profile & experience API | 1 | T-003 | — | todo |
 | T-005 | Jobs & application status API | 1 | T-003 | — | todo |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | — | todo |
@@ -71,13 +71,14 @@ Keep the summary table and the task details in sync.
 - **Review:** (claude, at merge, 2026-09-27) Approved. All acceptance criteria met; scope respected. `make types` against the merged backend leaves `schema.ts` unchanged. The Makefile add/add conflict was resolved as the handoff suggested: T-001's structure, with `test-frontend` → `pnpm test` and `lint-frontend` → `pnpm lint`. SPA routes return 200 in dev. Minor, non-blocking: `index.css` declares a `dark` variant but defines no dark tokens.
 
 ### T-003 DB models + initial migration
-- **Owner:** — · **Status:** todo · **Depends on:** T-001
+- **Owner:** codex · **Status:** in-progress · **Depends on:** T-001
 - **Scope:** `backend/app/models/**`, `backend/alembic/**`, `backend/app/db.py`, `backend/tests/**`
 - **Acceptance criteria:**
   - SQLModel tables for the Phase 1 data model in [ARCHITECTURE.md](ARCHITECTURE.md#core-data-model-phase-1).
   - Alembic configured to read `DATABASE_URL`; initial migration creates all tables; `make migrate` works on a fresh `data/app.db`.
   - Session dependency for FastAPI; test fixture providing a temporary DB.
   - Tests for relationships and the status enum.
+  - Relative SQLite paths in `DATABASE_URL` resolve against `REPO_ROOT` (from `app/config.py`), so `sqlite:///data/app.db` is always `<repo>/data/app.db` whether run from the repo root or `backend/`. `data/` is created if missing. Covered by a test.
 - **Handoff:**
 - **Review:**
 
