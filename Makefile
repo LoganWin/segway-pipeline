@@ -31,7 +31,7 @@ test-backend:
 
 test-frontend:
 ifneq ($(HAS_FRONTEND),)
-	cd $(FRONTEND) && pnpm vitest run
+	cd $(FRONTEND) && pnpm test
 else
 	@echo "frontend/ not set up yet (T-002); skipping frontend tests"
 endif
@@ -43,7 +43,7 @@ lint-backend:
 
 lint-frontend:
 ifneq ($(HAS_FRONTEND),)
-	cd $(FRONTEND) && pnpm eslint . && pnpm tsc --noEmit
+	cd $(FRONTEND) && pnpm lint
 else
 	@echo "frontend/ not set up yet (T-002); skipping frontend lint"
 endif

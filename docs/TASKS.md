@@ -9,8 +9,8 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 
 | ID | Title | Phase | Depends on | Owner | Status |
 |---|---|---|---|---|---|
-| T-001 | Backend scaffold | 1 | — | claude | review |
-| T-002 | Frontend scaffold | 1 | — | — | todo |
+| T-001 | Backend scaffold | 1 | — | claude | done |
+| T-002 | Frontend scaffold | 1 | — | codex | done |
 | T-003 | DB models + initial migration | 1 | T-001 | — | todo |
 | T-004 | Profile & experience API | 1 | T-003 | — | todo |
 | T-005 | Jobs & application status API | 1 | T-003 | — | todo |
@@ -24,7 +24,7 @@ Keep the summary table and the task details in sync.
 ---
 
 ### T-001 Backend scaffold
-- **Owner:** claude · **Status:** review · **Depends on:** —
+- **Owner:** claude · **Status:** done · **Depends on:** —
 - **Scope:** `backend/**`, root `Makefile`
 - **Acceptance criteria:**
   - `backend/pyproject.toml` managed by uv (Python 3.13) with FastAPI, uvicorn, SQLModel, Alembic, pydantic-settings; dev deps ruff, pyright, pytest, httpx.
@@ -49,10 +49,10 @@ Keep the summary table and the task details in sync.
     - The claim commit (`chore(tasks): claim T-001`) was never made on `main`. The Owner/Status change is in this branch instead.
     - If your shell has `VIRTUAL_ENV` set (e.g. conda), `uv run` prints a harmless "does not match the project environment" warning.
   - **New dependencies:** all of the above (first backend deps); `httpx2` replaces the listed `httpx`.
-- **Review:**
+- **Review:** (claude, at merge, 2026-09-27) Approved. All acceptance criteria met. Confirmed the `httpx2` deviation: Starlette 1.7.0's `testclient` imports `httpx2` (resolved from PyPI). After merging with T-002, combined `make lint` and `make test` pass (backend 5, frontend 3), and `make dev` serves `/api/health` directly and through the Vite proxy. Carry-over to T-003: resolve the relative SQLite path against `REPO_ROOT`.
 
 ### T-002 Frontend scaffold
-- **Owner:** — · **Status:** todo · **Depends on:** —
+- **Owner:** codex · **Status:** done · **Depends on:** —
 - **Scope:** `frontend/**`, frontend targets in root `Makefile` (coordinate if T-001 hasn't landed: create the targets and note it)
 - **Acceptance criteria:**
   - Vite + React + TypeScript (strict) app in `frontend/`, managed by pnpm.
@@ -62,7 +62,13 @@ Keep the summary table and the task details in sync.
   - Vite dev server proxies `/api` to `http://localhost:8000`.
   - ESLint, Prettier, Vitest configured; one smoke test renders the app shell.
 - **Handoff:**
-- **Review:**
+  - Implemented Vite/React with strict TypeScript, pnpm lockfile, Tailwind v4, shadcn/ui configuration and Card component, shared navigation, and placeholder Dashboard, Job detail, and Profile routes. Added TanStack Query provider, typed same-origin `openapi-fetch` client, `/api` dev proxy, ESLint/Prettier/Vitest, and frontend usage notes.
+  - Generated `src/api/schema.ts` with `make types` against the running T-001 backend from adjacent worktree commit `1c3a9ac`; no API routes/models changed. `pnpm gen:api` uses the required localhost OpenAPI command.
+  - Verified: `make lint` (ESLint, strict TypeScript, Prettier), `make test` (3 passing tests covering shell, navigation, job route and unknown route), `pnpm --dir frontend build`, and `git diff --check`. Live Vite checks confirmed `/api/health` returns `{"status":"ok"}` through the proxy and `/jobs/example-job` serves the SPA. These Make checks cover the frontend only because T-001 is not present on this branch.
+  - T-001 integration: this branch creates frontend-only root Make targets as allowed by scope. Resolve the expected Makefile add/add conflict by retaining T-001's backend/aggregate targets and calling `pnpm lint` in `lint-frontend` (includes formatting); keep `pnpm test` in `test-frontend`, `pnpm install` in setup, `pnpm dev` in `dev-web`, and `pnpm gen:api` in `types`. Preserve both task handoffs when resolving the board. Re-run combined `make lint` and `make test` after integration. T-006/T-007 implement the placeholder pages.
+  - Runtime dependencies: `react`, `react-dom`, `react-router`, `@tanstack/react-query`, `openapi-fetch`, `clsx`, `tailwind-merge`. Dev dependencies: `vite`, `@vitejs/plugin-react`, `typescript`, `@types/node`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/vite`, `tw-animate-css`, `eslint`, `@eslint/js`, `typescript-eslint`, `eslint-plugin-react-hooks`, `eslint-plugin-react-refresh`, `globals`, `prettier`, `vitest`, `jsdom`, `@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event`, `openapi-typescript`. Node 22.12+ and pnpm 10.22.0; jest-dom is pinned to 6.9.1 to avoid the deprecated 6.10 release. shadcn CLI was used only to generate source, not added as a dependency.
+  - Assignment was supplied by the user; corrected the stale unclaimed board entry on the existing `codex/T-002-frontend-scaffold` worktree. Unrelated changes on `main` were left untouched.
+- **Review:** (claude, at merge, 2026-09-27) Approved. All acceptance criteria met; scope respected. `make types` against the merged backend leaves `schema.ts` unchanged. The Makefile add/add conflict was resolved as the handoff suggested: T-001's structure, with `test-frontend` → `pnpm test` and `lint-frontend` → `pnpm lint`. SPA routes return 200 in dev. Minor, non-blocking: `index.css` declares a `dark` variant but defines no dark tokens.
 
 ### T-003 DB models + initial migration
 - **Owner:** — · **Status:** todo · **Depends on:** T-001
