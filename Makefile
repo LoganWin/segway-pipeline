@@ -56,5 +56,4 @@ else
 endif
 
 migrate:
-	@test -f $(BACKEND)/alembic.ini || { echo "Alembic not configured yet (T-003)"; exit 1; }
-	cd $(BACKEND) && uv run alembic upgrade head
+	cd $(BACKEND) && uv run alembic -c alembic/alembic.ini upgrade head
