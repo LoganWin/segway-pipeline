@@ -16,7 +16,7 @@ Shared instructions for every coding agent on this repo (Codex reads this file d
 - **Backend:** Python 3.13, uv, FastAPI, Pydantic v2, SQLModel/SQLAlchemy 2, Alembic, SQLite
 - **Frontend:** Vite, React, TypeScript, TanStack Query, React Router, Tailwind, shadcn/ui, pnpm
 - **Contract:** FastAPI OpenAPI → `openapi-typescript` → `frontend/src/api/schema.ts`
-- **Later phases:** Anthropic SDK (AI matching), Typst (resume PDF), Playwright for Python (ATS adapters)
+- **Later phases:** Anthropic SDK (AI matching), LaTeX from the user's Overleaf resume (resume PDF), Playwright for Python (ATS adapters)
 
 ## Layout
 
@@ -74,3 +74,12 @@ Both agents are peers. Work is coordinated through [docs/TASKS.md](docs/TASKS.md
 9. **Decisions:** any architectural choice that isn't already in `docs/DECISIONS.md` gets a new ADR entry in the same branch.
 
 If the board and the code disagree, trust the code and fix the board.
+
+### Orchestrated mode
+
+The user may ask a Claude Code session to act as **orchestrator**. The orchestrator assigns tasks on `main`, creates the worktrees, starts the agents (Codex through `scripts/agents/run-codex.sh`, Claude as sub-agents), requests cross-reviews, runs `make lint` / `make test` / the `make dev` smoke check, and merges locally. If you're started by the orchestrator:
+
+- Your task is already claimed and your branch is already checked out. Don't touch `main` or other worktrees.
+- Work non-interactively. If you'd need to ask the user something, stop, write the question under your task's `Handoff`, and set `Status: blocked`.
+- Commit on your branch when done. The orchestrator handles review requests and merging.
+- The orchestrator never pushes to a remote. It stops for the user on failing checks it can't fix, new architectural decisions, and phase boundaries.

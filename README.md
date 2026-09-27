@@ -14,7 +14,7 @@ AI Job Applier: a personal, local-first tool that tracks jobs, matches them agai
 
 ## Stack
 
-Python 3.13 · uv · FastAPI · SQLModel · SQLite · Alembic | Vite · React · TypeScript · Tailwind · shadcn/ui · pnpm | Anthropic SDK · Typst · Playwright (later phases)
+Python 3.13 · uv · FastAPI · SQLModel · SQLite · Alembic | Vite · React · TypeScript · Tailwind · shadcn/ui · pnpm | Anthropic SDK · LaTeX · Playwright (later phases)
 
 ## Getting started
 

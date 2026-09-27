@@ -18,7 +18,7 @@
 | API types | openapi-typescript → `frontend/src/api/schema.ts` | 1 |
 | Quality | ruff, pyright, pytest · eslint, prettier, tsc, vitest | 1 |
 | AI | Anthropic Python SDK, `claude-sonnet-5` by default; tool-use structured output parsed into Pydantic models; prompts as files in `backend/app/ai/prompts/` | 2 |
-| Resume PDF | Typst (`typst` PyPI package), template in `backend/app/resume/templates/`; build fails if output isn't exactly one page | 3 |
+| Resume PDF | LaTeX: the user's own Overleaf resume is the template (see ADR-005); compiled locally with `latexmk` on the same engine the Overleaf project uses; build fails if output isn't exactly one page | 3 |
 | ATS automation | Playwright for Python; one adapter per ATS in `backend/app/ats/` (Greenhouse first); tested against saved HTML fixtures | 4 |
 | Browser extension | WXT (TypeScript), for job capture and in-page assist | post-MVP |
 
@@ -31,7 +31,7 @@
  │ job detail, review   │  generated types   │  services/  business logic    │
  └──────────────────────┘                    │  models/    SQLModel tables   │
                                              │  ai/        extract + match   │──▶ Anthropic API
-                                             │  resume/    Typst compiler    │──▶ data/out/*.pdf
+                                             │  resume/    LaTeX compiler    │──▶ data/out/*.pdf
                                              │  ats/       Playwright fill   │──▶ employer ATS (fill only)
                                              └──────────────┬────────────────┘
                                                             ▼
