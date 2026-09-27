@@ -64,7 +64,7 @@ A task is not done until `make lint` and `make test` pass.
 Both agents are peers. Work is coordinated through [docs/TASKS.md](docs/TASKS.md).
 
 1. **Pick a task** with `Status: todo` whose dependencies are `done`. Don't start work that isn't on the board; add a task first (or ask the user).
-2. **Claim it** by setting `Owner: claude` or `Owner: codex` and `Status: in-progress`, then commit only that change to `main` (`chore(tasks): claim T-###`). If someone else claimed it first, pick another task.
+2. **Claim it** by setting `Owner: claude` or `Owner: codex` and `Status: in-progress`, then commit only that change to `main` (`chore(tasks): claim T-###`). If someone else claimed it first, pick another task. When agents run in parallel worktrees, the user pre-assigns tasks on `main` instead. If your task already shows you as owner and `in-progress`, skip this step.
 3. **Branch:** `claude/T-###-short-slug` or `codex/T-###-short-slug`. One in-progress task per agent at a time.
 4. **Stay in scope.** Only touch the files/areas listed in the task's `Scope`. If you need a change elsewhere, note it in the handoff or add a new task.
 5. **Contract changes:** if you change an API model or route, regenerate `schema.ts` (`make types`) in the same branch and say so in the handoff.
