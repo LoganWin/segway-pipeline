@@ -13,9 +13,10 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-002 | Frontend scaffold | 1 | — | codex | done |
 | T-003 | DB models + initial migration | 1 | T-001 | codex | done |
 | T-004 | Profile & experience API | 1 | T-003 | claude | done |
-| T-005 | Jobs & application status API | 1 | T-003 | codex | review |
+| T-005 | Jobs & application status API | 1 | T-003 | codex | done |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | — | todo |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | — | todo |
+| T-008 | Profile service layering cleanup | 1 | T-005 | — | todo |
 
 T-001 and T-002 are independent: one per agent in parallel. Likewise T-004/T-005, then T-006/T-007.
 
@@ -143,7 +144,7 @@ Keep the summary table and the task details in sync.
 - **Review:** (codex, 2026-09-27) Changes requested, then fixed in `beeffd2`: shared error contract in `app/api/errors.py` (typed 404/409 `ErrorResponse`, every 422 in FastAPI's shape), bullet-skill eager loading, IntegrityError → 409, `updated_at` bump when only skills change. Orchestrator verified: lint clean, 68 backend + 3 frontend tests.
 
 ### T-005 Jobs & application status API
-- **Owner:** codex · **Status:** review · **Depends on:** T-003
+- **Owner:** codex · **Status:** done · **Depends on:** T-003
 - **Scope:** `backend/app/api/jobs*.py`, `backend/app/api/applications*.py`, matching services, tests, `frontend/src/api/schema.ts` (regenerate only)
 - **Acceptance criteria:**
   - CRUD for `/api/jobs` (with filter by status and company); creating a job creates its `Application` in `saved`.
@@ -159,7 +160,7 @@ Keep the summary table and the task details in sync.
   - **Follow-ups:** T-004 integration is complete. T-006 can use nested `job.application.id/status/allowed_transitions` and PUT for edits; allowed destinations are supplied by the API in sorted order. Duplicate URLs remain allowed, matching existing persistence behavior; deduplication is outside these acceptance criteria. The orchestrator handles cross-review and merging; nothing pushed.
   - **Review fixes (Claude review):** Merged `main` in `0445bf3`, retaining T-004's completed task content and both APIs. All T-005 routes that can return 404/409 now declare the shared `ErrorResponse` contract via `NOT_FOUND`/`CONFLICT`; FastAPI's standard 422 shape is unchanged. Jobs/application services raise domain exceptions mapped to HTTP errors in the routes and no longer import FastAPI or API schemas; job writes use the service's `JobData` dataclass. Updated the single transition table and its docstring for manual applied tracking, return to preparing, and offer rejection/withdrawal. Every application response, including job list/detail/create/update responses, now computes `allowed_transitions` from that table. Tests cover 404/409 body shapes, OpenAPI error references, standard 422 validation, all 64 transition pairs, allowed destinations in embedded responses, and stale-write domain errors. Regenerated `schema.ts` with `make types` against both APIs using IPv6 localhost:8000 because IPv4 was occupied; the temporary uvicorn server was stopped. `make lint` and `make test` pass (**159 backend + 3 frontend tests**); `git diff --check` is clean. No new dependencies. Status remains review; nothing pushed.
   - **New dependencies:** None.
-- **Review:**
+- **Review:** (claude sub-agent, 2026-09-27) Changes requested, then fixed in `15c706b`: adopted `app/api/errors.py`; services now raise domain exceptions and don't import the API layer; transitions now allow applying directly from saved/preparing/ready_for_review, ready_for_review → preparing, and offer → rejected/withdrawn (orchestrator default, open to user changes); `allowed_transitions` is included on application responses. Orchestrator verified: lint clean, 159 backend + 3 frontend tests, `schema.ts` covers all 14 routes, and a live API check of create, direct apply, 409 on an invalid transition, a typed 404 body and ordered UTC history.
 
 ### T-006 Dashboard UI
 - **Owner:** — · **Status:** todo · **Depends on:** T-002, T-005
@@ -179,5 +180,15 @@ Keep the summary table and the task details in sync.
   - Edit profile fields; list/add/edit/delete experiences and their bullets; manage skills and reusable answers.
   - Bullets can be tagged with skills and marked verified.
   - Vitest component tests for the experience and bullet editors.
+- **Handoff:**
+- **Review:**
+
+### T-008 Profile service layering cleanup
+- **Owner:** — · **Status:** todo · **Depends on:** T-005
+- **Scope:** `backend/app/services/profile.py`, `backend/app/api/profile*.py`, related tests
+- **Acceptance criteria:**
+  - `app/services/profile.py` no longer imports `app.api.*` or `fastapi`. It takes plain values or its own dataclasses and raises domain exceptions, the same pattern as `app/services/jobs.py` / `applications.py` after T-005.
+  - Routes map domain exceptions to the `app/api/errors.py` contract; API behaviour and OpenAPI are unchanged (`make types` produces no diff).
+  - All existing tests pass unchanged except for imports.
 - **Handoff:**
 - **Review:**
