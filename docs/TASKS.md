@@ -12,7 +12,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-001 | Backend scaffold | 1 | — | claude | done |
 | T-002 | Frontend scaffold | 1 | — | codex | done |
 | T-003 | DB models + initial migration | 1 | T-001 | codex | done |
-| T-004 | Profile & experience API | 1 | T-003 | claude | in-progress |
+| T-004 | Profile & experience API | 1 | T-003 | claude | done |
 | T-005 | Jobs & application status API | 1 | T-003 | codex | review |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | — | todo |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | — | todo |
@@ -90,7 +90,7 @@ Keep the summary table and the task details in sync.
 - **Review:** (claude sub-agent + orchestrator, 2026-09-27) Approved after one fix round. The fixes added named constraints, distinct CHECK names, UTC-aware datetimes, `Job.description`/`company` defaulting to "", and moved `alembic.ini` to `backend/`. Verified: lint clean, 44 backend + 3 frontend tests, fresh migrate, `alembic check` clean. Carry-over for T-004/T-005: request schemas must require FK ids (the models type them `int | None`); `Job.url` isn't unique, so any dedupe is the API's job.
 
 ### T-004 Profile & experience API
-- **Owner:** claude · **Status:** in-progress · **Depends on:** T-003
+- **Owner:** claude · **Status:** done · **Depends on:** T-003
 - **Scope:** `backend/app/api/profile*.py`, `backend/app/services/profile*.py`, related tests, `frontend/src/api/schema.ts` (regenerate only)
 - **Acceptance criteria:**
   - `GET/PUT /api/profile`; CRUD for `/api/experiences`, `/api/experiences/{id}/bullets`, `/api/skills`, `/api/answers`.
@@ -98,7 +98,49 @@ Keep the summary table and the task details in sync.
   - Tests cover create, update, delete, and 404s.
   - `schema.ts` regenerated.
 - **Handoff:**
-- **Review:**
+  - **What changed:**
+    - `app/api/profile_schemas.py`: request/response Pydantic models, separate from the tables (`ProfileRequest/Response`, `ExperienceRequest/Response`, `BulletRequest/Response`, `SkillRequest/Response`, `AnswerRequest/Response`). The same request model serves POST and PUT, so PUT is a full replacement and omitted optional fields reset to their defaults. Required strings are whitespace-stripped and non-empty. `ExperienceRequest` rejects `end_date < start_date` (422). Responses serialize `created_at`/`updated_at` as UTC ISO-8601 (`...Z`), and the OpenAPI type keeps `format: date-time`.
+    - `app/services/profile.py`: all logic. Raises `NotFoundError` (404), `ConflictError` (409), and `InvalidReferenceError` (422), which the routes turn into `HTTPException`s through one `service_errors()` context manager.
+    - `app/api/profile.py`: thin routes, combined into one `router`. `app/main.py` got one import and one `include_router(profile_router, prefix="/api")` line.
+    - Endpoints:
+      - `GET/PUT /api/profile`. **`GET` returns 404 until the first `PUT`.** `PUT` upserts the single row (id 1) and keeps `created_at`.
+      - `GET/POST /api/experiences`, `GET/PUT/DELETE /api/experiences/{id}`.
+      - `GET/POST /api/experiences/{id}/bullets`, `GET/PUT/DELETE /api/experiences/{id}/bullets/{bullet_id}`.
+      - `GET/POST /api/skills`, `GET/PUT/DELETE /api/skills/{id}`.
+      - `GET/POST /api/answers`, `GET/PUT/DELETE /api/answers/{id}`.
+      - POST returns 201 and DELETE returns 204. Lists are ordered by id.
+    - Bullets: `experience_id` comes from the path, which is required, and the response always includes it. A bullet requested under a different experience returns 404. `skill_ids: list[int]` in the request replaces the bullet's links. Duplicate ids are de-duplicated, and unknown ids return 422 with the missing ids. The response has `skill_ids` sorted, plus `verified` and `metrics`.
+    - Uniqueness: a duplicate skill `name` or answer `question_key` returns 409. Re-saving a record under its own name is allowed.
+    - Deletes: deleting an experience removes its bullets and their skill links through the DB's `ON DELETE CASCADE`. Deleting a skill only removes its links, and the bullets stay.
+    - `frontend/src/api/schema.ts` regenerated from the API on port 8001.
+  - **Verification:**
+    - `make lint`: ruff clean, 24 files formatted, pyright strict 0 errors, and frontend eslint, tsc and prettier clean.
+    - `make test`: **60 backend passed** (16 new in `tests/test_profile_api.py`) and **3 frontend passed**.
+    - The new tests cover create, update, delete and 404s for every resource, bullets under the wrong experience, bullet↔skill linking and unlinking, unknown skill ids, the experience→bullet cascade (checked in the DB, including `bulletskill`), skill deletion keeping bullets, 409 conflicts, validation errors, the single profile row, and the UTC `Z` timestamps.
+    - The tests use conftest's migrated temporary DB through a `get_session` dependency override on a fresh `create_app()`. `data/` was not touched.
+  - **Deviations:**
+    - The `client` fixture lives in `tests/test_profile_api.py` rather than `conftest.py`, to avoid a merge conflict with T-005.
+    - There is no PATCH. Updates are full-replacement PUTs.
+    - Request/response schemas live in `app/api/profile_schemas.py`, which the service imports.
+  - **Follow-ups:**
+    - Merge with T-005: `main.py` and `schema.ts` will conflict. Keep both `include_router` lines, then re-run `make types` on the merged API.
+    - T-007: call `PUT /api/profile` to create the profile, and treat a 404 from `GET` as "not set yet". To toggle `verified`, send the whole bullet, including `skill_ids`.
+    - The profile `email` is not format-validated, because that would need the `email-validator` dependency.
+    - T-005 should adopt the shared `app/api/errors.py` error contract (see Review fixes).
+  - **New dependencies:** None.
+  - **Review fixes (Codex review):**
+    - **Error contract:** new shared `app/api/errors.py`.
+      - `ErrorResponse {detail: str}` is the body for every 404 and 409.
+      - Reusable `NOT_FOUND` and `CONFLICT` `responses=` dicts are declared on every route, so OpenAPI and `schema.ts` now type those bodies.
+      - `validation_error(loc, msg, input)` raises `RequestValidationError`, so domain validation failures come back in FastAPI's standard 422 shape (`detail: [{loc, msg, type, input}]`). Unknown `skill_ids` now return `loc: ["body", "skill_ids"]`, and every 422 has that one shape. `end_date < start_date` was already a request-model validator.
+    - **N+1:** listing bullets eager-loads their skills with `selectinload`. A test counts SELECTs (at most 3 for 5 bullets) and fails without the fix.
+    - **Uniqueness race:** `_save` catches `IntegrityError` on the skill-name and answer `question_key` writes, rolls back, and returns `ConflictError` (409). A test disables the pre-checks and confirms 409s on create and update, that nothing was written, and that the API stays usable afterwards.
+    - **`updated_at`:** `PUT` on a bullet always sets `updated_at`, because changing only `skill_ids` touches just the link table and `onupdate` wouldn't fire. This is covered by a test.
+    - **Contract tests** check the 404, 409 and both kinds of 422 bodies, plus the `ErrorResponse` references in OpenAPI.
+    - `schema.ts` was regenerated on port 8001.
+    - **Checks:** `make lint` is clean (ruff, 25 files formatted, pyright 0 errors, frontend clean). `make test` passes: **68 backend** and **3 frontend**.
+    - **Follow-up:** after merge, **T-005 should adopt `app/api/errors.py`**. That means `ErrorResponse` for its 404 and 409 responses, `NOT_FOUND`/`CONFLICT` on its routes, and `validation_error` for domain 422s such as invalid status transitions, if those are reported as 422.
+- **Review:** (codex, 2026-09-27) Changes requested, then fixed in `beeffd2`: shared error contract in `app/api/errors.py` (typed 404/409 `ErrorResponse`, every 422 in FastAPI's shape), bullet-skill eager loading, IntegrityError → 409, `updated_at` bump when only skills change. Orchestrator verified: lint clean, 68 backend + 3 frontend tests.
 
 ### T-005 Jobs & application status API
 - **Owner:** codex · **Status:** review · **Depends on:** T-003

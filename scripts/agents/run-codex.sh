@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run Codex non-interactively in a task worktree.
 # Usage: scripts/agents/run-codex.sh <worktree-dir> <prompt-file> [last-message-out]
+# Env: CODEX_SANDBOX=read-only for reviews (default workspace-write), CODEX_MODEL, CODEX_BIN.
 #
 # Sandbox: workspace-write, plus network (for uv/pnpm installs) and write access to the
 # main repo's .git (worktree commits write there). Nothing here changes ~/.codex/config.toml.
@@ -24,7 +25,7 @@ model=${CODEX_MODEL:-gpt-6-astra}
 exec "$codex_bin" exec \
   -m "$model" \
   -C "$worktree" \
-  -s workspace-write \
+  -s "${CODEX_SANDBOX:-workspace-write}" \
   --add-dir "$repo_git" \
   -c sandbox_workspace_write.network_access=true \
   -o "$out" \
