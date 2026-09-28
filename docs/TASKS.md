@@ -12,8 +12,8 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-001 | Backend scaffold | 1 | — | claude | done |
 | T-002 | Frontend scaffold | 1 | — | codex | done |
 | T-003 | DB models + initial migration | 1 | T-001 | codex | done |
-| T-004 | Profile & experience API | 1 | T-003 | — | todo |
-| T-005 | Jobs & application status API | 1 | T-003 | — | todo |
+| T-004 | Profile & experience API | 1 | T-003 | claude | in-progress |
+| T-005 | Jobs & application status API | 1 | T-003 | codex | in-progress |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | — | todo |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | — | todo |
 
@@ -90,7 +90,7 @@ Keep the summary table and the task details in sync.
 - **Review:** (claude sub-agent + orchestrator, 2026-09-27) Approved after one fix round. The fixes added named constraints, distinct CHECK names, UTC-aware datetimes, `Job.description`/`company` defaulting to "", and moved `alembic.ini` to `backend/`. Verified: lint clean, 44 backend + 3 frontend tests, fresh migrate, `alembic check` clean. Carry-over for T-004/T-005: request schemas must require FK ids (the models type them `int | None`); `Job.url` isn't unique, so any dedupe is the API's job.
 
 ### T-004 Profile & experience API
-- **Owner:** — · **Status:** todo · **Depends on:** T-003
+- **Owner:** claude · **Status:** in-progress · **Depends on:** T-003
 - **Scope:** `backend/app/api/profile*.py`, `backend/app/services/profile*.py`, related tests, `frontend/src/api/schema.ts` (regenerate only)
 - **Acceptance criteria:**
   - `GET/PUT /api/profile`; CRUD for `/api/experiences`, `/api/experiences/{id}/bullets`, `/api/skills`, `/api/answers`.
@@ -101,7 +101,7 @@ Keep the summary table and the task details in sync.
 - **Review:**
 
 ### T-005 Jobs & application status API
-- **Owner:** — · **Status:** todo · **Depends on:** T-003
+- **Owner:** codex · **Status:** in-progress · **Depends on:** T-003
 - **Scope:** `backend/app/api/jobs*.py`, `backend/app/api/applications*.py`, matching services, tests, `frontend/src/api/schema.ts` (regenerate only)
 - **Acceptance criteria:**
   - CRUD for `/api/jobs` (with filter by status and company); creating a job creates its `Application` in `saved`.
