@@ -32,12 +32,31 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 @contextmanager
 def service_errors() -> Generator[None]:
+    """Map the profile service's domain exceptions to the `app.api.errors` contract."""
     try:
         yield
+    except service.NotFoundError as error:
+        raise http_error(404, str(error)) from error
+    except service.ConflictError as error:
+        raise http_error(409, str(error)) from error
     except service.InvalidReferenceError as error:
-        raise validation_error(error.loc, str(error), error.input_value) from error
-    except service.ServiceError as error:
-        raise http_error(error.status_code, str(error)) from error
+        raise validation_error(("body", error.field), str(error), error.value) from error
+
+
+def experience_data(data: ExperienceRequest) -> service.ExperienceData:
+    return service.ExperienceData(**data.model_dump())
+
+
+def bullet_data(data: BulletRequest) -> service.BulletData:
+    return service.BulletData(**data.model_dump())
+
+
+def skill_data(data: SkillRequest) -> service.SkillData:
+    return service.SkillData(**data.model_dump())
+
+
+def answer_data(data: AnswerRequest) -> service.AnswerData:
+    return service.AnswerData(**data.model_dump())
 
 
 def bullet_response(bullet: Bullet) -> BulletResponse:
@@ -64,7 +83,9 @@ def get_profile(session: SessionDep) -> ProfileResponse:
 
 @profile_router.put("")
 def put_profile(data: ProfileRequest, session: SessionDep) -> ProfileResponse:
-    return ProfileResponse.model_validate(service.put_profile(session, data))
+    return ProfileResponse.model_validate(
+        service.put_profile(session, service.ProfileData(**data.model_dump()))
+    )
 
 
 experiences_router = APIRouter(prefix="/experiences", tags=["experiences"])
@@ -77,7 +98,9 @@ def list_experiences(session: SessionDep) -> list[ExperienceResponse]:
 
 @experiences_router.post("", status_code=status.HTTP_201_CREATED)
 def create_experience(data: ExperienceRequest, session: SessionDep) -> ExperienceResponse:
-    return ExperienceResponse.model_validate(service.create_experience(session, data))
+    return ExperienceResponse.model_validate(
+        service.create_experience(session, experience_data(data))
+    )
 
 
 @experiences_router.get("/{experience_id}", responses=NOT_FOUND)
@@ -91,7 +114,7 @@ def update_experience(
     experience_id: int, data: ExperienceRequest, session: SessionDep
 ) -> ExperienceResponse:
     with service_errors():
-        experience = service.update_experience(session, experience_id, data)
+        experience = service.update_experience(session, experience_id, experience_data(data))
         return ExperienceResponse.model_validate(experience)
 
 
@@ -116,7 +139,7 @@ def list_bullets(experience_id: int, session: SessionDep) -> list[BulletResponse
 )
 def create_bullet(experience_id: int, data: BulletRequest, session: SessionDep) -> BulletResponse:
     with service_errors():
-        return bullet_response(service.create_bullet(session, experience_id, data))
+        return bullet_response(service.create_bullet(session, experience_id, bullet_data(data)))
 
 
 @experiences_router.get("/{experience_id}/bullets/{bullet_id}", responses=NOT_FOUND)
@@ -130,7 +153,9 @@ def update_bullet(
     experience_id: int, bullet_id: int, data: BulletRequest, session: SessionDep
 ) -> BulletResponse:
     with service_errors():
-        return bullet_response(service.update_bullet(session, experience_id, bullet_id, data))
+        return bullet_response(
+            service.update_bullet(session, experience_id, bullet_id, bullet_data(data))
+        )
 
 
 @experiences_router.delete(
@@ -154,7 +179,7 @@ def list_skills(session: SessionDep) -> list[SkillResponse]:
 @skills_router.post("", status_code=status.HTTP_201_CREATED, responses=CONFLICT)
 def create_skill(data: SkillRequest, session: SessionDep) -> SkillResponse:
     with service_errors():
-        return SkillResponse.model_validate(service.create_skill(session, data))
+        return SkillResponse.model_validate(service.create_skill(session, skill_data(data)))
 
 
 @skills_router.get("/{skill_id}", responses=NOT_FOUND)
@@ -166,7 +191,9 @@ def get_skill(skill_id: int, session: SessionDep) -> SkillResponse:
 @skills_router.put("/{skill_id}", responses={**NOT_FOUND, **CONFLICT})
 def update_skill(skill_id: int, data: SkillRequest, session: SessionDep) -> SkillResponse:
     with service_errors():
-        return SkillResponse.model_validate(service.update_skill(session, skill_id, data))
+        return SkillResponse.model_validate(
+            service.update_skill(session, skill_id, skill_data(data))
+        )
 
 
 @skills_router.delete("/{skill_id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND)
@@ -186,7 +213,7 @@ def list_answers(session: SessionDep) -> list[AnswerResponse]:
 @answers_router.post("", status_code=status.HTTP_201_CREATED, responses=CONFLICT)
 def create_answer(data: AnswerRequest, session: SessionDep) -> AnswerResponse:
     with service_errors():
-        return AnswerResponse.model_validate(service.create_answer(session, data))
+        return AnswerResponse.model_validate(service.create_answer(session, answer_data(data)))
 
 
 @answers_router.get("/{answer_id}", responses=NOT_FOUND)
@@ -198,7 +225,9 @@ def get_answer(answer_id: int, session: SessionDep) -> AnswerResponse:
 @answers_router.put("/{answer_id}", responses={**NOT_FOUND, **CONFLICT})
 def update_answer(answer_id: int, data: AnswerRequest, session: SessionDep) -> AnswerResponse:
     with service_errors():
-        return AnswerResponse.model_validate(service.update_answer(session, answer_id, data))
+        return AnswerResponse.model_validate(
+            service.update_answer(session, answer_id, answer_data(data))
+        )
 
 
 @answers_router.delete("/{answer_id}", status_code=status.HTTP_204_NO_CONTENT, responses=NOT_FOUND)

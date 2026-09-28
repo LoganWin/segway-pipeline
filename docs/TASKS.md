@@ -16,7 +16,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-005 | Jobs & application status API | 1 | T-003 | codex | done |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | codex → claude | done |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | claude | done |
-| T-008 | Profile service layering cleanup | 1 | T-005 | claude | in-progress |
+| T-008 | Profile service layering cleanup | 1 | T-005 | claude | review |
 | T-009 | Phase 1 integration pass | 1 | T-006, T-007 | claude | in-progress |
 
 T-001 and T-002 are independent: one per agent in parallel. Likewise T-004/T-005, then T-006/T-007.
@@ -234,13 +234,23 @@ Keep the summary table and the task details in sync.
 - **Review:** (independent claude sub-agent, 2026-09-27; Codex was over its usage limit) Approved with nits. Findings 1–6 and 9 were fixed in `3bfdb4f` (23 frontend tests on the branch). Finding 7 (the import-order-dependent test shims) and finding 8 (tests for ProfileForm/Skills/Answers) move to T-009.
 
 ### T-008 Profile service layering cleanup
-- **Owner:** claude · **Status:** in-progress · **Depends on:** T-005
+- **Owner:** claude · **Status:** review · **Depends on:** T-005
 - **Scope:** `backend/app/services/profile.py`, `backend/app/api/profile*.py`, related tests
 - **Acceptance criteria:**
   - `app/services/profile.py` no longer imports `app.api.*` or `fastapi`. It takes plain values or its own dataclasses and raises domain exceptions, the same pattern as `app/services/jobs.py` / `applications.py` after T-005.
   - Routes map domain exceptions to the `app/api/errors.py` contract; API behaviour and OpenAPI are unchanged (`make types` produces no diff).
   - All existing tests pass unchanged except for imports.
 - **Handoff:**
+  - **What changed:**
+    - `app/services/profile.py` no longer imports `app.api.*` or `fastapi`. Writes take the service's own frozen dataclasses (`ProfileData`, `ExperienceData`, `BulletData`, `SkillData`, `AnswerData`), mirroring T-005's `JobData`, and are applied with `dataclasses.asdict` (bullets set `text`/`metrics`/`verified` explicitly and resolve `skill_ids` separately, as before).
+    - Exceptions follow T-005's shape: plain `Exception` subclasses local to the service module, with no HTTP status codes. `ServiceError` and the `status_code` attributes are gone; `NotFoundError` and `ConflictError` remain, and `InvalidReferenceError` now carries the domain `field` (`"skill_ids"`) and offending `value` instead of an HTTP `loc`. T-005's `jobs.NotFoundError`/`applications.ConflictError` are per-module and documented as job/application errors, so profile keeps its own same-shaped types rather than importing them; no shared base class was added.
+    - `app/api/profile.py`: `service_errors()` maps `NotFoundError` → 404 and `ConflictError` → 409 via `http_error`, and `InvalidReferenceError` → `validation_error(("body", field), msg, value)`, so unknown `skill_ids` still return the standard 422 with `loc: ["body", "skill_ids"]`. Small `*_data()` helpers convert the Pydantic requests into the service dataclasses. Routes, `responses=`, status codes and schemas are unchanged.
+  - **Verification:**
+    - OpenAPI unchanged: `/openapi.json` fetched from uvicorn on port 8003 before the change (branch HEAD = `main` `de5eed2`) and after it is byte-identical (`cmp`, same sha1 `33bf3c83…`). `schema.ts` regenerated with `openapi-typescript` against port 8003 produces no `git diff`. uvicorn was stopped afterwards.
+    - `make lint` clean (ruff, pyright strict 0 errors; frontend has only the 2 existing shadcn warnings). `make test`: 159 backend, 32 frontend passed. `tests/test_profile_api.py` needed no changes at all, not even imports.
+  - **Deviations:** none. `frontend/node_modules` was installed in this worktree (`pnpm install --frozen-lockfile`) to run the frontend checks; no lockfile change.
+  - **Follow-ups:** if more services appear, a shared `app/services/errors.py` (`NotFoundError`, `ConflictError`) that jobs, applications and profile all reuse would let the routes share one mapper; that touches T-005's files, so it was left out of this task.
+  - **New dependencies:** None.
 - **Review:**
 
 ### T-009 Phase 1 integration pass
