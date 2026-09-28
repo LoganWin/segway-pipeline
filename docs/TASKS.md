@@ -126,7 +126,20 @@ Keep the summary table and the task details in sync.
     - Merge with T-005: `main.py` and `schema.ts` will conflict. Keep both `include_router` lines, then re-run `make types` on the merged API.
     - T-007: call `PUT /api/profile` to create the profile, and treat a 404 from `GET` as "not set yet". To toggle `verified`, send the whole bullet, including `skill_ids`.
     - The profile `email` is not format-validated, because that would need the `email-validator` dependency.
+    - T-005 should adopt the shared `app/api/errors.py` error contract (see Review fixes).
   - **New dependencies:** None.
+  - **Review fixes (Codex review):**
+    - **Error contract:** new shared `app/api/errors.py`.
+      - `ErrorResponse {detail: str}` is the body for every 404 and 409.
+      - Reusable `NOT_FOUND` and `CONFLICT` `responses=` dicts are declared on every route, so OpenAPI and `schema.ts` now type those bodies.
+      - `validation_error(loc, msg, input)` raises `RequestValidationError`, so domain validation failures come back in FastAPI's standard 422 shape (`detail: [{loc, msg, type, input}]`). Unknown `skill_ids` now return `loc: ["body", "skill_ids"]`, and every 422 has that one shape. `end_date < start_date` was already a request-model validator.
+    - **N+1:** listing bullets eager-loads their skills with `selectinload`. A test counts SELECTs (at most 3 for 5 bullets) and fails without the fix.
+    - **Uniqueness race:** `_save` catches `IntegrityError` on the skill-name and answer `question_key` writes, rolls back, and returns `ConflictError` (409). A test disables the pre-checks and confirms 409s on create and update, that nothing was written, and that the API stays usable afterwards.
+    - **`updated_at`:** `PUT` on a bullet always sets `updated_at`, because changing only `skill_ids` touches just the link table and `onupdate` wouldn't fire. This is covered by a test.
+    - **Contract tests** check the 404, 409 and both kinds of 422 bodies, plus the `ErrorResponse` references in OpenAPI.
+    - `schema.ts` was regenerated on port 8001.
+    - **Checks:** `make lint` is clean (ruff, 25 files formatted, pyright 0 errors, frontend clean). `make test` passes: **68 backend** and **3 frontend**.
+    - **Follow-up:** after merge, **T-005 should adopt `app/api/errors.py`**. That means `ErrorResponse` for its 404 and 409 responses, `NOT_FOUND`/`CONFLICT` on its routes, and `validation_error` for domain 422s such as invalid status transitions, if those are reported as 422.
 - **Review:**
 
 ### T-005 Jobs & application status API

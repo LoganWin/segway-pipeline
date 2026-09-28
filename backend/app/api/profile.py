@@ -5,11 +5,12 @@
 
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Annotated, Any
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlmodel import Session
 
+from app.api.errors import CONFLICT, NOT_FOUND, http_error, validation_error
 from app.api.profile_schemas import (
     AnswerRequest,
     AnswerResponse,
@@ -27,16 +28,16 @@ from app.models import Bullet
 from app.services import profile as service
 
 SessionDep = Annotated[Session, Depends(get_session)]
-Responses = dict[int | str, dict[str, Any]]
-NOT_FOUND: Responses = {404: {"description": "Not found"}}
 
 
 @contextmanager
 def service_errors() -> Generator[None]:
     try:
         yield
+    except service.InvalidReferenceError as error:
+        raise validation_error(error.loc, str(error), error.input_value) from error
     except service.ServiceError as error:
-        raise HTTPException(status_code=error.status_code, detail=str(error)) from error
+        raise http_error(error.status_code, str(error)) from error
 
 
 def bullet_response(bullet: Bullet) -> BulletResponse:
@@ -143,7 +144,6 @@ def delete_bullet(experience_id: int, bullet_id: int, session: SessionDep) -> No
 
 
 skills_router = APIRouter(prefix="/skills", tags=["skills"])
-CONFLICT: Responses = {409: {"description": "Name already in use"}}
 
 
 @skills_router.get("")

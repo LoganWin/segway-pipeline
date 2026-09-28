@@ -3,11 +3,12 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, event, text
 from sqlmodel import Session
 
 from app.db import get_session
 from app.main import create_app
+from app.services import profile as service
 
 Json = dict[str, Any]
 
@@ -186,7 +187,7 @@ def test_bullet_rejects_unknown_skill_ids(client: TestClient) -> None:
     base = f"/api/experiences/{experience_id}/bullets"
     response = client.post(base, json={"text": "Did things", "skill_ids": [42]})
     assert response.status_code == 422
-    assert "42" in response.json()["detail"]
+    assert "42" in response.json()["detail"][0]["msg"]
     assert client.get(base).json() == []
 
 
@@ -308,3 +309,155 @@ def test_answer_404s_and_conflicts(client: TestClient) -> None:
     assert client.post("/api/answers", json=body).status_code == 409
     assert client.put(f"/api/answers/{other['id']}", json=body).status_code == 409
     assert client.post("/api/answers", json={"question_key": "x", "text": ""}).status_code == 422
+
+
+# Error contract: 404/409 are ErrorResponse, every 422 is FastAPI's validation shape.
+
+
+def assert_error_response(response: Any, status_code: int) -> None:
+    assert response.status_code == status_code
+    body = response.json()
+    assert set(body) == {"detail"}
+    assert isinstance(body["detail"], str)
+    assert body["detail"]
+
+
+def assert_validation_error(response: Any, loc: list[str]) -> Json:
+    assert response.status_code == 422
+    body = response.json()
+    assert set(body) == {"detail"}
+    assert isinstance(body["detail"], list)
+    error = body["detail"][0]
+    assert {"loc", "msg", "type"} <= set(error)
+    assert error["loc"] == loc
+    assert error["type"] == "value_error"
+    return error
+
+
+def test_404_body_shape(client: TestClient) -> None:
+    experience_id = make_experience(client)["id"]
+    for path in (
+        "/api/profile",
+        "/api/experiences/999",
+        "/api/experiences/999/bullets",
+        f"/api/experiences/{experience_id}/bullets/999",
+        "/api/skills/999",
+        "/api/answers/999",
+    ):
+        assert_error_response(client.get(path), 404)
+
+
+def test_409_body_shape(client: TestClient) -> None:
+    make_skill(client, "Python")
+    assert_error_response(client.post("/api/skills", json={"name": "Python"}), 409)
+    body: Json = {"question_key": "why", "text": "Because."}
+    create(client, "/api/answers", body)
+    assert_error_response(client.post("/api/answers", json=body), 409)
+
+
+def test_422_shape_for_domain_reference_errors(client: TestClient) -> None:
+    experience_id = make_experience(client)["id"]
+    response = client.post(
+        f"/api/experiences/{experience_id}/bullets", json={"text": "x", "skill_ids": [41, 42]}
+    )
+    error = assert_validation_error(response, ["body", "skill_ids"])
+    assert error["input"] == [41, 42]
+
+
+def test_422_shape_for_request_model_validation(client: TestClient) -> None:
+    response = client.post(
+        "/api/experiences",
+        json={
+            "kind": "job",
+            "org": "Org",
+            "title": "Title",
+            "start_date": "2025-01-01",
+            "end_date": "2024-01-01",
+        },
+    )
+    assert_validation_error(response, ["body"])
+    missing = client.put("/api/profile", json={"name": "Jane"})
+    assert missing.status_code == 422
+    assert missing.json()["detail"][0]["loc"] == ["body", "email"]
+
+
+def test_openapi_declares_error_models(client: TestClient) -> None:
+    paths = client.get("/openapi.json").json()["paths"]
+    ref = "#/components/schemas/ErrorResponse"
+    not_found = paths["/api/skills/{skill_id}"]["get"]["responses"]["404"]
+    assert not_found["content"]["application/json"]["schema"]["$ref"] == ref
+    conflict = paths["/api/answers"]["post"]["responses"]["409"]
+    assert conflict["content"]["application/json"]["schema"]["$ref"] == ref
+
+
+# Unique-constraint race: the DB constraint still yields 409 when the pre-check misses it.
+
+
+def test_unique_races_become_409(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    python = make_skill(client, "Python")
+    go = make_skill(client, "Go")
+    first: Json = {"question_key": "why", "text": "Because."}
+    create(client, "/api/answers", first)
+    other = create(client, "/api/answers", {"question_key": "when", "text": "Soon."})
+
+    def skip_pre_check(*_args: object) -> None:
+        return None
+
+    monkeypatch.setattr(service, "_ensure_skill_name_free", skip_pre_check)
+    monkeypatch.setattr(service, "_ensure_question_key_free", skip_pre_check)
+
+    assert_error_response(client.post("/api/skills", json={"name": "Python"}), 409)
+    assert_error_response(client.put(f"/api/skills/{go['id']}", json={"name": "Python"}), 409)
+    assert_error_response(client.post("/api/answers", json=first), 409)
+    assert_error_response(client.put(f"/api/answers/{other['id']}", json=first), 409)
+
+    # Nothing was written and the rolled-back sessions left the API usable.
+    assert client.get(f"/api/skills/{go['id']}").json()["name"] == "Go"
+    assert client.get(f"/api/answers/{other['id']}").json()["question_key"] == "when"
+    assert [s["id"] for s in client.get("/api/skills").json()] == [python["id"], go["id"]]
+    assert make_skill(client, "Rust")["name"] == "Rust"
+
+
+# Bullet loading and timestamps
+
+
+def test_listing_bullets_loads_skills_without_n_plus_one(
+    client: TestClient, engine: Engine
+) -> None:
+    experience_id = make_experience(client)["id"]
+    skill_ids = [make_skill(client, name)["id"] for name in ("Python", "SQL", "Go")]
+    base = f"/api/experiences/{experience_id}/bullets"
+    for index in range(5):
+        create(client, base, {"text": f"Bullet {index}", "skill_ids": skill_ids})
+
+    statements: list[str] = []
+
+    def record(*args: Any) -> None:
+        statements.append(args[2])
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        response = client.get(base)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    assert response.status_code == 200
+    assert all(b["skill_ids"] == sorted(skill_ids) for b in response.json())
+    selects = [s for s in statements if s.lstrip().upper().startswith("SELECT")]
+    assert len(selects) <= 3, selects  # experience, bullets, skills (one IN query)
+
+
+def test_changing_only_skill_ids_bumps_bullet_updated_at(client: TestClient) -> None:
+    experience_id = make_experience(client)["id"]
+    skill = make_skill(client)
+    base = f"/api/experiences/{experience_id}/bullets"
+    bullet = create(client, base, {"text": "Same text"})
+
+    updated = client.put(
+        f"{base}/{bullet['id']}", json={"text": "Same text", "skill_ids": [skill["id"]]}
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["skill_ids"] == [skill["id"]]
+    assert updated.json()["updated_at"] > bullet["updated_at"]
+    assert updated.json()["created_at"] == bullet["created_at"]

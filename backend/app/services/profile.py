@@ -2,6 +2,8 @@
 
 from collections.abc import Sequence
 
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
 from app.api.profile_schemas import (
@@ -12,6 +14,7 @@ from app.api.profile_schemas import (
     SkillRequest,
 )
 from app.models import Answer, Bullet, Experience, Profile, Skill
+from app.models.entities import utc_now
 
 PROFILE_ID = 1
 
@@ -29,12 +32,28 @@ class ConflictError(ServiceError):
 
 
 class InvalidReferenceError(ServiceError):
+    """A request field points at records that don't exist; reported as a standard 422."""
+
     status_code = 422
 
+    def __init__(self, message: str, loc: tuple[str, ...], input_value: object) -> None:
+        super().__init__(message)
+        self.loc = loc
+        self.input_value = input_value
 
-def _save[T: (Profile, Experience, Bullet, Skill, Answer)](session: Session, record: T) -> T:
+
+def _save[T: (Profile, Experience, Bullet, Skill, Answer)](
+    session: Session, record: T, conflict: str | None = None
+) -> T:
+    """Commit `record`. With `conflict`, a unique-constraint race becomes a ConflictError."""
     session.add(record)
-    session.commit()
+    try:
+        session.commit()
+    except IntegrityError as error:
+        session.rollback()
+        if conflict is None:
+            raise
+        raise ConflictError(conflict) from error
     session.refresh(record)
     return record
 
@@ -98,13 +117,20 @@ def _resolve_skills(session: Session, skill_ids: list[int]) -> list[Skill]:
     found = session.exec(select(Skill).where(col(Skill.id).in_(wanted))).all()
     missing = sorted(set(wanted) - {skill.id for skill in found})
     if missing:
-        raise InvalidReferenceError(f"Unknown skill ids: {missing}")
+        raise InvalidReferenceError(
+            f"Unknown skill ids: {missing}", ("body", "skill_ids"), skill_ids
+        )
     return list(found)
 
 
 def list_bullets(session: Session, experience_id: int) -> Sequence[Bullet]:
     get_experience(session, experience_id)
-    statement = select(Bullet).where(Bullet.experience_id == experience_id).order_by(col(Bullet.id))
+    statement = (
+        select(Bullet)
+        .where(Bullet.experience_id == experience_id)
+        .options(selectinload(Bullet.skills))  # pyright: ignore[reportArgumentType]
+        .order_by(col(Bullet.id))
+    )
     return session.exec(statement).all()
 
 
@@ -131,6 +157,8 @@ def update_bullet(
     skills = _resolve_skills(session, data.skill_ids)
     bullet.sqlmodel_update(data.model_dump(exclude={"skill_ids"}))
     bullet.skills = skills
+    # Link-table changes don't touch the bullet row, so onupdate wouldn't fire for them.
+    bullet.updated_at = utc_now()
     return _save(session, bullet)
 
 
@@ -156,19 +184,23 @@ def get_skill(session: Session, skill_id: int) -> Skill:
 def _ensure_skill_name_free(session: Session, name: str, skill_id: int | None = None) -> None:
     existing = session.exec(select(Skill).where(Skill.name == name)).first()
     if existing is not None and existing.id != skill_id:
-        raise ConflictError(f"Skill {name!r} already exists")
+        raise ConflictError(_skill_conflict(name))
+
+
+def _skill_conflict(name: str) -> str:
+    return f"Skill {name!r} already exists"
 
 
 def create_skill(session: Session, data: SkillRequest) -> Skill:
     _ensure_skill_name_free(session, data.name)
-    return _save(session, Skill(**data.model_dump()))
+    return _save(session, Skill(**data.model_dump()), _skill_conflict(data.name))
 
 
 def update_skill(session: Session, skill_id: int, data: SkillRequest) -> Skill:
     skill = get_skill(session, skill_id)
     _ensure_skill_name_free(session, data.name, skill_id)
     skill.sqlmodel_update(data.model_dump())
-    return _save(session, skill)
+    return _save(session, skill, _skill_conflict(data.name))
 
 
 def delete_skill(session: Session, skill_id: int) -> None:
@@ -196,19 +228,23 @@ def _ensure_question_key_free(
 ) -> None:
     existing = session.exec(select(Answer).where(Answer.question_key == question_key)).first()
     if existing is not None and existing.id != answer_id:
-        raise ConflictError(f"Answer for {question_key!r} already exists")
+        raise ConflictError(_answer_conflict(question_key))
+
+
+def _answer_conflict(question_key: str) -> str:
+    return f"Answer for {question_key!r} already exists"
 
 
 def create_answer(session: Session, data: AnswerRequest) -> Answer:
     _ensure_question_key_free(session, data.question_key)
-    return _save(session, Answer(**data.model_dump()))
+    return _save(session, Answer(**data.model_dump()), _answer_conflict(data.question_key))
 
 
 def update_answer(session: Session, answer_id: int, data: AnswerRequest) -> Answer:
     answer = get_answer(session, answer_id)
     _ensure_question_key_free(session, data.question_key, answer_id)
     answer.sqlmodel_update(data.model_dump())
-    return _save(session, answer)
+    return _save(session, answer, _answer_conflict(data.question_key))
 
 
 def delete_answer(session: Session, answer_id: int) -> None:
