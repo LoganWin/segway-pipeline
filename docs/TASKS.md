@@ -16,7 +16,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-005 | Jobs & application status API | 1 | T-003 | codex | done |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | codex → claude | done |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | claude | done |
-| T-008 | Profile service layering cleanup | 1 | T-005 | claude | review |
+| T-008 | Profile service layering cleanup | 1 | T-005 | claude | done |
 | T-009 | Phase 1 integration pass | 1 | T-006, T-007 | claude | in-progress |
 
 T-001 and T-002 are independent: one per agent in parallel. Likewise T-004/T-005, then T-006/T-007.
@@ -234,7 +234,7 @@ Keep the summary table and the task details in sync.
 - **Review:** (independent claude sub-agent, 2026-09-27; Codex was over its usage limit) Approved with nits. Findings 1–6 and 9 were fixed in `3bfdb4f` (23 frontend tests on the branch). Finding 7 (the import-order-dependent test shims) and finding 8 (tests for ProfileForm/Skills/Answers) move to T-009.
 
 ### T-008 Profile service layering cleanup
-- **Owner:** claude · **Status:** review · **Depends on:** T-005
+- **Owner:** claude · **Status:** done · **Depends on:** T-005
 - **Scope:** `backend/app/services/profile.py`, `backend/app/api/profile*.py`, related tests
 - **Acceptance criteria:**
   - `app/services/profile.py` no longer imports `app.api.*` or `fastapi`. It takes plain values or its own dataclasses and raises domain exceptions, the same pattern as `app/services/jobs.py` / `applications.py` after T-005.
@@ -251,7 +251,7 @@ Keep the summary table and the task details in sync.
   - **Deviations:** none. `frontend/node_modules` was installed in this worktree (`pnpm install --frozen-lockfile`) to run the frontend checks; no lockfile change.
   - **Follow-ups:** if more services appear, a shared `app/services/errors.py` (`NotFoundError`, `ConflictError`) that jobs, applications and profile all reuse would let the routes share one mapper; that touches T-005's files, so it was left out of this task.
   - **New dependencies:** None.
-- **Review:**
+- **Review:** (orchestrator, 2026-09-27) Approved. A pure refactor: the service imports only sqlalchemy/sqlmodel/models, and the routes map domain errors to `app/api/errors.py`. OpenAPI is byte-identical and the tests are unchanged (159 backend + 32 frontend).
 
 ### T-009 Phase 1 integration pass
 - **Owner:** claude · **Status:** in-progress · **Depends on:** T-006, T-007
