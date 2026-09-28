@@ -463,12 +463,15 @@ export interface components {
         };
         /**
          * JobWrite
-         * @description Create or replace job fields. URL and title are the minimum required data.
+         * @description Create or replace job fields. Only the title is required; the URL may be empty.
          */
         JobWrite: {
             /** Title */
             title: string;
-            /** Url */
+            /**
+             * Url
+             * @default
+             */
             url: string;
             /**
              * Company

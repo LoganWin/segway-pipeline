@@ -17,7 +17,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-006 | Dashboard UI | 1 | T-002, T-005 | codex → claude | done |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | claude | done |
 | T-008 | Profile service layering cleanup | 1 | T-005 | claude | in-progress |
-| T-009 | Phase 1 integration pass | 1 | T-006, T-007 | claude | in-progress |
+| T-009 | Phase 1 integration pass | 1 | T-006, T-007 | claude | review |
 
 T-001 and T-002 are independent: one per agent in parallel. Likewise T-004/T-005, then T-006/T-007.
 
@@ -244,7 +244,7 @@ Keep the summary table and the task details in sync.
 - **Review:**
 
 ### T-009 Phase 1 integration pass
-- **Owner:** claude · **Status:** in-progress · **Depends on:** T-006, T-007
+- **Owner:** claude · **Status:** review · **Depends on:** T-006, T-007
 - **Scope:** `backend/app/api/jobs_schemas.py` (+ tests), `frontend/src/test/**`, `frontend/src/api/client.ts`, `frontend/src/components/{jobs,profile}/**` tests and small fixes, `frontend/src/pages/Dashboard.tsx`
 - **Acceptance criteria:**
   - Job `url` is optional in the API (`""` default); `schema.ts` regenerated; the job form no longer requires URL (`required`, `missingFields`, comment, and its test updated).
@@ -254,4 +254,34 @@ Keep the summary table and the task details in sync.
   - New tests: a Dashboard status-filter test (sends `?status=`), a JobDetail transition → history refresh test, a ProfileForm test (404 → empty form → PUT), and a skill 409 test.
   - `make lint`, `make test` and `pnpm --dir frontend build` pass, and the `make dev` smoke check works.
 - **Handoff:**
+  - **What changed:**
+    - **Optional job URL.** `JobWrite.url` in `backend/app/api/jobs_schemas.py` is now a whitespace-stripped `str = ""` (only the title is required). The `Job.url` column was already a non-null `str`, so no migration was needed. `test_create_job_with_only_a_title` posts `{"title": ...}` alone and a blank `"   "` URL (both saved as `""`). In the invalid-payload cases, "missing URL" and `url: ""` are no longer errors, and `url: null` was added as still invalid. `schema.ts` was regenerated from this branch's API (uvicorn on 8004, temp DB `/tmp/t009.db`). The only diff is the `JobWrite` description and `url`'s `@default`. openapi-typescript still types `url` as a required `string`, which is fine because the form always sends it. `JobForm` no longer marks the URL required: the `required` flag, the `missingFields` check and the comment were updated.
+    - **One shared API mock.** `src/test/setup.ts` holds the only `vi.mock('@/api/client')`. Its factory builds a real openapi-fetch client with `baseUrl: 'http://localhost'` and a `fetch` that calls `fetchMock`, exported from the new `src/test/api-mock.ts`. That module also has `json()` (handles 204), `requestAt(i)`, `requestLines()` (`"GET /api/jobs?status=applied"`) and `resetFetchMock()`. Setup runs `resetFetchMock()` before each test, so an unstubbed request gets a 501 instead of `undefined`. The `ResizeObserver` shim moved into setup.
+      - Jobs tests: the per-file `vi.mock` blocks and `beforeEach` resets are gone. `components/jobs/test-utils.tsx` re-exports the shared helpers (with `firstRequest(fetchMock)` replaced by `requestAt()`) and adds `renderRoute()`, which wraps a page in a `MemoryRouter`.
+      - Profile tests: `components/profile/test-utils.ts` no longer patches the global `Request` or `fetch`. `createFakeApi` installs its in-memory handler with `fetchMock.mockImplementation`, so the import order no longer matters. The fake API gained `POST /api/skills` and `PUT /api/skills/{id}`, which return a 409 on a duplicate name with the API's message (`Skill 'X' already exists`).
+    - **422 guards.**
+      - Jobs: `apiErrorMessage` in `components/jobs/queries.ts` now keeps only `detail` entries with an array `loc` and a string `msg`. If none are left, or the body isn't an object, it shows the generic `Request failed (N)` message instead of throwing.
+      - Profile: `toApiError` already filtered entries. It now also falls back to the generic message when no valid entry is left or `detail` is an empty string. Before, it showed "Please correct the highlighted fields." with no fields highlighted.
+    - **Dashboard toggle.** The label is now always "New job", and `aria-expanded`/`aria-controls` carry the open/closed state. I used "New job" rather than "Add job" so the toggle doesn't share an accessible name with the form's "Add job" submit button while the panel is open.
+  - **Verification:**
+    - `make lint` is clean (the same 2 existing shadcn `react-refresh` warnings).
+    - `make test` passes: **159 backend** (net unchanged: 1 new test, 1 parametrized case removed) and **48 frontend** in 10 files (32 existed before).
+    - New and changed frontend tests:
+      - `JobForm`: title-only POST with `url: ""`; the URL is not required or invalid; an unexpected 422 shape gives the generic message; the existing 422 test now uses a realistic `url` message.
+      - `pages/Dashboard.test.tsx`: the status filter sends `GET /api/jobs?status=applied` and shows only the filtered rows; the filtered empty state for `?status=offer`; the toggle keeps its label while `aria-expanded` flips and the panel opens and closes.
+      - `pages/JobDetail.test.tsx`: a transition with a note POSTs the exact body, then history is fetched again and the new `Saved → Applied` event and its note appear.
+      - `ProfileForm.test.tsx`: GET 404 → empty form with the "haven't saved" hint → a PUT with the trimmed, nulled body → "Saved." and the form re-mounted with the saved values.
+      - `SkillsEditor.test.tsx`: a duplicate name shows the 409 `detail` in the form, which stays open with its value, and nothing is added; a unique name creates the skill.
+      - `profile/api.test.ts`: `toApiError` splits field and general 422 messages and falls back to the generic message for 6 malformed bodies.
+    - `pnpm --dir frontend build` passes.
+    - Smoke check: I migrated `/tmp/t009.db` and ran uvicorn on 8004 and Vite on 5175, using a temporary `vite.t009.config.ts` (a `mergeConfig` override that proxies `/api` to 8004). `/` and `/profile` returned 200 and their modules were served. `POST /api/jobs` with only `{"title": ...}` through the proxy returned 201 with `url: ""`, it showed in `GET /api/jobs?status=saved`, and `GET /api/profile` returned 404 on the empty DB. Afterwards I stopped both servers and deleted the temp config, DB, logs and `dist/`. Nothing was written under `data/`. There was no browser click-through; the UI flows are covered by the component tests.
+  - **Deviations:**
+    - The toggle label is "New job" (see above).
+    - A new unit test file, `components/profile/api.test.ts`, covers the `toApiError` guard.
+    - The jobs guard test sits in `JobForm.test.tsx`, where the message is actually shown.
+    - T-008's files (`services/profile.py`, `api/profile.py`) were not touched.
+  - **Follow-ups:**
+    - Merging with T-008 should be conflict-free (no shared files); run `make types` after both merges to confirm `schema.ts` has no diff.
+    - `JobDetail`/the Dashboard table could hide or grey out an empty URL; they don't show the URL today apart from the form field.
+  - **New dependencies:** none.
 - **Review:**

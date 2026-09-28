@@ -1,30 +1,17 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { paths } from '@/api/schema'
+import { describe, expect, it, vi } from 'vitest'
 import { JobForm } from './JobForm'
 import {
-  firstRequest,
+  fetchMock,
   json,
   makeJob,
   renderWithQuery,
-  type FetchMock,
+  requestAt,
 } from './test-utils'
 
-// openapi-fetch captures `fetch` when the client is created, so the tests
-// build the client with a mocked fetch and an absolute base URL.
-const fetchMock: FetchMock = vi.hoisted(() => vi.fn())
-vi.mock('@/api/client', async () => {
-  const { default: createClient } = await import('openapi-fetch')
-  return {
-    api: createClient<paths>({ baseUrl: 'http://localhost', fetch: fetchMock }),
-  }
-})
-
 describe('JobForm', () => {
-  beforeEach(() => fetchMock.mockReset())
-
-  it('requires a title and URL before sending anything', async () => {
+  it('requires a title before sending anything, but not a URL', async () => {
     const user = userEvent.setup()
     renderWithQuery(<JobForm />)
 
@@ -35,10 +22,11 @@ describe('JobForm', () => {
       'true',
     )
     expect(screen.getByText('Enter a job title.')).toBeInTheDocument()
-    expect(screen.getByText('Enter the job posting URL.')).toBeInTheDocument()
-    expect(
-      screen.getByRole('textbox', { name: 'Company' }),
-    ).not.toHaveAttribute('aria-invalid')
+    for (const name of ['Company', 'URL']) {
+      const field = screen.getByRole('textbox', { name })
+      expect(field).not.toHaveAttribute('aria-invalid')
+      expect(field).not.toBeRequired()
+    }
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -63,7 +51,7 @@ describe('JobForm', () => {
 
     expect(await screen.findByText('Job saved.')).toBeInTheDocument()
     expect(onSaved).toHaveBeenCalledWith(saved)
-    const request = firstRequest(fetchMock)
+    const request = requestAt()
     expect(request.method).toBe('POST')
     expect(new URL(request.url).pathname).toBe('/api/jobs')
     expect(await request.json()).toEqual({
@@ -74,6 +62,21 @@ describe('JobForm', () => {
       description: 'Build things.\nShip them.',
       source: null,
       ats_type: null,
+    })
+  })
+
+  it('posts a job with only a title and an empty URL', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValue(json(makeJob({ url: '' }), 201))
+    renderWithQuery(<JobForm />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Title' }), 'Engineer')
+    await user.click(screen.getByRole('button', { name: 'Add job' }))
+
+    expect(await screen.findByText('Job saved.')).toBeInTheDocument()
+    expect(await requestAt().json()).toMatchObject({
+      title: 'Engineer',
+      url: '',
     })
   })
 
@@ -90,7 +93,7 @@ describe('JobForm', () => {
     await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     expect(await screen.findByText('Job saved.')).toBeInTheDocument()
-    const request = firstRequest(fetchMock)
+    const request = requestAt()
     expect(request.method).toBe('PUT')
     expect(new URL(request.url).pathname).toBe('/api/jobs/7')
     expect(await request.json()).toMatchObject({
@@ -107,8 +110,8 @@ describe('JobForm', () => {
           detail: [
             {
               loc: ['body', 'url'],
-              msg: 'String should have at least 1 character',
-              type: 'string_too_short',
+              msg: 'Input should be a valid string',
+              type: 'string_type',
             },
           ],
         },
@@ -122,7 +125,25 @@ describe('JobForm', () => {
     await user.click(screen.getByRole('button', { name: 'Add job' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'url: String should have at least 1 character',
+      'url: Input should be a valid string',
+    )
+  })
+
+  it('shows a generic message for an unexpected 422 body', async () => {
+    const user = userEvent.setup()
+    fetchMock.mockResolvedValue(
+      json(
+        { detail: [{ loc: 'body', msg: { text: 'odd' } }, 'oops', null] },
+        422,
+      ),
+    )
+    renderWithQuery(<JobForm />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Title' }), 'Engineer')
+    await user.click(screen.getByRole('button', { name: 'Add job' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Request failed (422). Please try again.',
     )
   })
 

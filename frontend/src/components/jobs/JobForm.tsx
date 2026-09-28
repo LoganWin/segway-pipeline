@@ -14,7 +14,7 @@ type Values = {
 }
 type Field = keyof Values
 
-// The API requires a non-empty title and URL (JobWrite); everything else is optional.
+// The API requires only a non-empty title (JobWrite); the URL and the rest are optional.
 const fields: {
   name: Exclude<Field, 'description'>
   label: string
@@ -23,7 +23,7 @@ const fields: {
 }[] = [
   { name: 'title', label: 'Title', required: true },
   { name: 'company', label: 'Company', required: false },
-  { name: 'url', label: 'URL', required: true, type: 'url' },
+  { name: 'url', label: 'URL', required: false, type: 'url' },
   { name: 'location', label: 'Location', required: false },
 ]
 
@@ -40,7 +40,6 @@ function initialValues(job?: Job): Values {
 function missingFields(values: Values): Partial<Record<Field, string>> {
   const errors: Partial<Record<Field, string>> = {}
   if (!values.title.trim()) errors.title = 'Enter a job title.'
-  if (!values.url.trim()) errors.url = 'Enter the job posting URL.'
   return errors
 }
 

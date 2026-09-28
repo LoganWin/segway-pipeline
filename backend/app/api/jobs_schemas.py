@@ -7,15 +7,16 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, StringConstraints
 from app.api.applications_schemas import ApplicationResponse
 
 NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+StrippedString = Annotated[str, StringConstraints(strip_whitespace=True)]
 
 
 class JobWrite(BaseModel):
-    """Create or replace job fields. URL and title are the minimum required data."""
+    """Create or replace job fields. Only the title is required; the URL may be empty."""
 
     model_config = ConfigDict(extra="forbid")
 
     title: NonEmptyString
-    url: NonEmptyString
+    url: StrippedString = ""
     company: str = ""
     description: str = ""
     source: str | None = None

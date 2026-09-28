@@ -9,23 +9,40 @@ export type Application = Schemas['ApplicationResponse']
 export type Status = Schemas['ApplicationStatus']
 export type TransitionRequest = Schemas['TransitionRequest']
 type ApiErrorBody = Schemas['ErrorResponse'] | Schemas['HTTPValidationError']
+type ValidationIssue = Schemas['ValidationError']
 
 /**
  * Turn an API error body into a readable message: the `detail` string of a
  * 404/409 `ErrorResponse`, or each `{loc, msg}` of a FastAPI 422.
  */
 export function apiErrorMessage(body: unknown, status: number): string {
-  const detail = (body as ApiErrorBody | undefined)?.detail
+  const detail =
+    typeof body === 'object' && body !== null && 'detail' in body
+      ? (body as ApiErrorBody).detail
+      : undefined
   if (typeof detail === 'string' && detail) return detail
-  if (Array.isArray(detail) && detail.length) {
-    return detail
+  if (Array.isArray(detail)) {
+    // Skip entries that aren't `{loc: [...], msg: string}` rather than crash.
+    const messages = (detail as unknown[])
+      .filter(isValidationIssue)
       .map(({ loc, msg }) => {
         const field = loc.filter((part) => part !== 'body').join('.')
         return field ? `${field}: ${msg}` : msg
       })
-      .join('; ')
+    if (messages.length) return messages.join('; ')
   }
   return `Request failed (${status}). Please try again.`
+}
+
+function isValidationIssue(value: unknown): value is ValidationIssue {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'loc' in value &&
+    Array.isArray(value.loc) &&
+    'msg' in value &&
+    typeof value.msg === 'string'
+  )
 }
 
 async function unwrap<T>(

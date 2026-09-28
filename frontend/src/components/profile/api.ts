@@ -71,11 +71,14 @@ export function toApiError(status: number, body: unknown): ApiError {
     typeof body === 'object' && body !== null && 'detail' in body
       ? body.detail
       : undefined
-  if (typeof detail === 'string') return new ApiError(status, detail)
-  if (Array.isArray(detail)) {
+  if (typeof detail === 'string' && detail) return new ApiError(status, detail)
+  // Entries that aren't `{loc: [...], msg: string}` are skipped; if none are
+  // left, fall back to the generic message below.
+  const issues = Array.isArray(detail) ? detail.filter(isValidationIssue) : []
+  if (issues.length > 0) {
     const byField: Record<string, string[]> = {}
     const general: string[] = []
-    for (const issue of detail.filter(isValidationIssue)) {
+    for (const issue of issues) {
       const path = issue.loc.slice(issue.loc[0] === 'body' ? 1 : 0)
       const field = path.join('.')
       if (issue.loc[0] === 'body' && field) {
