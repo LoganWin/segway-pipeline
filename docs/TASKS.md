@@ -203,6 +203,19 @@ Keep the summary table and the task details in sync.
     - Consider moving the jsdom shims into `src/test/setup.ts` if T-006's tests need the same `fetch` mocking.
   - **New dependencies:** `radix-ui` (Checkbox, Label, Switch, Slot), `class-variance-authority`, `lucide-react`.
   - **shadcn components added:** `alert`, `badge`, `button`, `checkbox`, `input`, `label`, `native-select`, `switch`, `textarea`.
+  - **Review fixes (review: approve with nits):**
+    - Deleting an experience no longer invalidates its bullets, which refetched a deleted resource and got a 404. `useDeleteExperience` drops the experience from the cached list, then removes the `bullets(id)` query with `removeQueries`, then refetches the list. The removal is scheduled through `notifyManager.schedule` so it runs after the list update renders: removing the query while its `BulletEditor` was still mounted made that editor fetch it again, which a test caught.
+    - `BulletForm` drops skill ids that are no longer in `/api/skills` when you submit, so a skill deleted while the form is open no longer causes a 422 you can't fix. While the skills are loading, the ids are kept and the picker says "Loading skills…" instead of treating the list as empty.
+    - Entering a bullet's edit mode calls `update.reset()`, so an error from a failed verified toggle doesn't leak into the edit form.
+    - Focus: a new `useReturnFocus` hook (`components/profile/focus.ts`) returns focus to the trigger when a form or confirmation closes. It covers Delete→Cancel/Confirm, Edit→Cancel/Save, and each "Add …" button in every editor. "Confirm delete" gets focus when it appears, and the first field of each add/edit form is `autoFocus`ed.
+    - The confirm button has `aria-label="Confirm <label lowercased>"`, e.g. "Confirm delete bullet".
+    - The skill-picker error has an id, and the `<fieldset>` points `aria-describedby` at it.
+    - A failed toggle with a field-level 422 lists `field: message` in the bullet's alert (`ErrorMessage withFields`, backed by `errorMessages()` and `ApiError.generalMessages`) instead of "Please correct the highlighted fields."
+    - Tests: there are 5 new tests, and 2 existing ones were extended.
+      - New: removing a skill while the edit form is open results in a PUT with only the remaining ids; a toggle's 422 lists its field messages and doesn't carry into the edit form, which gets focus; Cancel returns focus to Delete; the fieldset is described by its error; the experience form moves focus in and back out.
+      - Extended: the experience-delete test now asserts there is no bullets GET after the DELETE, and the bullet-delete test asserts focus on the confirm button.
+      - The fake API gained `DELETE /api/skills/{id}`. The `test-utils` import-order setup, `src/test/setup.ts` and `src/api/client.ts` are unchanged.
+    - Checks: `make lint` is clean (the same 2 shadcn warnings), `make test` passes (159 backend, 23 frontend), and `pnpm --dir frontend build` succeeds.
 - **Review:**
 
 ### T-008 Profile service layering cleanup

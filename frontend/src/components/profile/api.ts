@@ -1,4 +1,5 @@
 import {
+  notifyManager,
   useMutation,
   useQuery,
   useQueryClient,
@@ -36,16 +37,20 @@ export const EXPERIENCE_KINDS: readonly ExperienceKind[] = [
 export class ApiError extends Error {
   readonly status: number
   readonly fieldErrors: Readonly<Record<string, string[]>>
+  /** Messages not tied to a field (for a 422, `message` falls back to a generic hint without them). */
+  readonly generalMessages: readonly string[]
 
   constructor(
     status: number,
     message: string,
     fieldErrors: Record<string, string[]> = {},
+    generalMessages: string[] = [message],
   ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.fieldErrors = fieldErrors
+    this.generalMessages = generalMessages
   }
 }
 
@@ -83,7 +88,7 @@ export function toApiError(status: number, body: unknown): ApiError {
       general.length > 0
         ? general.join('; ')
         : 'Please correct the highlighted fields.'
-    return new ApiError(status, message, byField)
+    return new ApiError(status, message, byField, general)
   }
   return new ApiError(status, `Request failed (HTTP ${status}).`)
 }
@@ -101,6 +106,19 @@ export function optional(value: string): string | null {
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Something went wrong.'
+}
+
+/**
+ * Every message in the error, with field-level 422 messages spelled out as
+ * `field: message`. For places where no form shows the fields.
+ */
+export function errorMessages(error: unknown): string[] {
+  if (!(error instanceof ApiError)) return [errorMessage(error)]
+  const fields = Object.entries(error.fieldErrors).flatMap(([field, msgs]) =>
+    msgs.map((msg) => `${field}: ${msg}`),
+  )
+  if (fields.length === 0) return [error.message]
+  return [...error.generalMessages, ...fields]
 }
 
 type FetchResult<T> = { data?: T; error?: unknown; response: Response }
@@ -186,6 +204,7 @@ export function useUpdateExperience() {
 }
 
 export function useDeleteExperience() {
+  const queryClient = useQueryClient()
   const invalidate = useInvalidate()
   return useMutation({
     mutationFn: (id: number) =>
@@ -194,8 +213,19 @@ export function useDeleteExperience() {
           params: { path: { experience_id: id } },
         }),
       ),
-    onSuccess: (_data, id) =>
-      invalidate(profileKeys.experiences, profileKeys.bullets(id)),
+    onSuccess: (_data, id) => {
+      // Its bullets went with it, and refetching them would 404, so forget them
+      // instead of invalidating. Drop the experience from the list first and
+      // remove the bullets only after that update has rendered: removing a
+      // query while its list is still mounted makes that list fetch it again.
+      queryClient.setQueryData<Experience[]>(profileKeys.experiences, (list) =>
+        list?.filter((experience) => experience.id !== id),
+      )
+      notifyManager.schedule(() =>
+        queryClient.removeQueries({ queryKey: profileKeys.bullets(id) }),
+      )
+      return invalidate(profileKeys.experiences)
+    },
   })
 }
 

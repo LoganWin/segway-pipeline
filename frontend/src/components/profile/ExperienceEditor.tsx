@@ -30,6 +30,7 @@ import {
   Field,
   LoadingMessage,
 } from './shared'
+import { useReturnFocus } from './focus'
 
 const KIND_LABELS: Record<ExperienceKind, string> = {
   job: 'Job',
@@ -42,6 +43,7 @@ export function ExperienceEditor() {
   const experiences = useExperiences()
   const create = useCreateExperience()
   const [adding, setAdding] = useState(false)
+  const addRef = useReturnFocus<HTMLButtonElement>(adding)
 
   return (
     <section aria-labelledby="experiences-title" className="space-y-4">
@@ -50,7 +52,7 @@ export function ExperienceEditor() {
           Experiences
         </h2>
         {!adding && (
-          <Button type="button" onClick={() => setAdding(true)}>
+          <Button ref={addRef} type="button" onClick={() => setAdding(true)}>
             Add experience
           </Button>
         )}
@@ -104,6 +106,7 @@ function ExperienceItem({ experience }: { experience: Experience }) {
   const update = useUpdateExperience()
   const remove = useDeleteExperience()
   const [editing, setEditing] = useState(false)
+  const editRef = useReturnFocus<HTMLButtonElement>(editing)
   const dates = formatDates(experience)
   const details = [dates, experience.location].filter(Boolean).join(' · ')
 
@@ -143,6 +146,7 @@ function ExperienceItem({ experience }: { experience: Experience }) {
           </CardDescription>
           <CardAction className="flex gap-1">
             <Button
+              ref={editRef}
               type="button"
               variant="ghost"
               size="sm"
@@ -233,6 +237,7 @@ function ExperienceForm({
               value={org}
               onChange={(e) => setOrg(e.target.value)}
               required
+              autoFocus
             />
           )}
         </Field>

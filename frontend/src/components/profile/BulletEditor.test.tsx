@@ -3,6 +3,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { BulletEditor } from './BulletEditor'
+import { SkillsEditor } from './SkillsEditor'
 
 const skills = [
   fixtures.skill({ id: 1, name: 'TypeScript' }),
@@ -165,9 +166,11 @@ describe('BulletEditor', () => {
     await user.click(
       within(bullet).getByRole('button', { name: 'Delete bullet' }),
     )
-    await user.click(
-      within(bullet).getByRole('button', { name: 'Confirm delete' }),
-    )
+    const confirm = within(bullet).getByRole('button', {
+      name: 'Confirm delete bullet',
+    })
+    expect(confirm).toHaveFocus()
+    await user.click(confirm)
 
     expect(await screen.findByText('No bullets yet.')).toBeInTheDocument()
     expect(api.writes()).toEqual([
@@ -224,5 +227,123 @@ describe('BulletEditor', () => {
     expect(
       within(bullet).getByRole('switch', { name: 'Verified' }),
     ).not.toBeChecked()
+  })
+
+  it('returns focus to Delete when the confirmation is cancelled', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi({ skills, bullets: [fixtures.bullet()] })
+    renderWithQueryClient(<BulletEditor experienceId={1} />)
+    const bullet = await findBullet('Built a widget pipeline')
+
+    await user.click(
+      within(bullet).getByRole('button', { name: 'Delete bullet' }),
+    )
+    await user.click(within(bullet).getByRole('button', { name: 'Cancel' }))
+
+    expect(
+      within(bullet).getByRole('button', { name: 'Delete bullet' }),
+    ).toHaveFocus()
+    expect(api.writes()).toEqual([])
+  })
+
+  it('drops skills deleted while the bullet form is open', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi({
+      skills,
+      bullets: [fixtures.bullet({ skill_ids: [1, 2] })],
+    })
+    renderWithQueryClient(
+      <>
+        <SkillsEditor />
+        <BulletEditor experienceId={1} />
+      </>,
+    )
+    const bullet = await findBullet('Built a widget pipeline')
+    await user.click(within(bullet).getByRole('button', { name: 'Edit' }))
+    const form = screen.getByRole('form', { name: 'Edit bullet' })
+    expect(within(form).getByRole('checkbox', { name: 'SQL' })).toBeChecked()
+
+    const sql = screen.getByRole('listitem', { name: 'Skill: SQL' })
+    await user.click(
+      within(sql).getByRole('button', { name: 'Delete skill SQL' }),
+    )
+    await user.click(
+      within(sql).getByRole('button', { name: 'Confirm delete skill sql' }),
+    )
+    await waitFor(() =>
+      expect(
+        within(form).queryByRole('checkbox', { name: 'SQL' }),
+      ).not.toBeInTheDocument(),
+    )
+    await user.click(within(form).getByRole('button', { name: 'Save bullet' }))
+
+    await waitFor(() =>
+      expect(api.writes().map((w) => w.method)).toEqual(['DELETE', 'PUT']),
+    )
+    expect(api.writes()[1]).toMatchObject({
+      path: '/api/experiences/1/bullets/10',
+      body: { skill_ids: [1] },
+    })
+  })
+
+  it('lists field messages from a failed toggle and keeps them out of the edit form', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi({ skills, bullets: [fixtures.bullet()] })
+    api.failNext('PUT', '/api/experiences/1/bullets/10', 422, {
+      detail: [
+        {
+          loc: ['body', 'text'],
+          msg: 'String should have at least 1 character',
+          type: 'string_too_short',
+        },
+      ],
+    })
+    renderWithQueryClient(<BulletEditor experienceId={1} />)
+    const bullet = await findBullet('Built a widget pipeline')
+
+    await user.click(within(bullet).getByRole('switch', { name: 'Verified' }))
+    expect(
+      await within(bullet).findByText(
+        'text: String should have at least 1 character',
+      ),
+    ).toBeInTheDocument()
+    expect(
+      within(bullet).queryByText('Please correct the highlighted fields.'),
+    ).not.toBeInTheDocument()
+
+    await user.click(within(bullet).getByRole('button', { name: 'Edit' }))
+    const form = screen.getByRole('form', { name: 'Edit bullet' })
+    const text = within(form).getByLabelText('Bullet text')
+    expect(text).toHaveFocus()
+    expect(text).toHaveAttribute('aria-invalid', 'false')
+    expect(within(form).queryByRole('alert')).not.toBeInTheDocument()
+    expect(
+      within(form).queryByText(/String should have at least 1 character/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('points the skill group at its error message', async () => {
+    const user = userEvent.setup()
+    const api = createFakeApi({ skills })
+    api.failNext('POST', '/api/experiences/1/bullets', 422, {
+      detail: [
+        {
+          loc: ['body', 'skill_ids'],
+          msg: 'Unknown skill ids: [2]',
+          type: 'value_error',
+        },
+      ],
+    })
+    renderWithQueryClient(<BulletEditor experienceId={1} />)
+    await screen.findByText('No bullets yet.')
+    await user.click(screen.getByRole('button', { name: 'Add bullet' }))
+    const form = screen.getByRole('form', { name: 'New bullet' })
+    await user.type(within(form).getByLabelText('Bullet text'), 'Wrote docs')
+    await user.click(within(form).getByRole('button', { name: 'Add bullet' }))
+
+    const group = within(form).getByRole('group', { name: 'Skills' })
+    await waitFor(() =>
+      expect(group).toHaveAccessibleDescription('Unknown skill ids: [2]'),
+    )
   })
 })

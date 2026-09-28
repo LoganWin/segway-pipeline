@@ -26,6 +26,7 @@ import {
   Field,
   LoadingMessage,
 } from './shared'
+import { useReturnFocus } from './focus'
 
 /** The bullets of one experience: list, add, edit, delete, verify and tag with skills. */
 export function BulletEditor({ experienceId }: { experienceId: number }) {
@@ -33,8 +34,7 @@ export function BulletEditor({ experienceId }: { experienceId: number }) {
   const skills = useSkills()
   const create = useCreateBullet(experienceId)
   const [adding, setAdding] = useState(false)
-
-  const skillList = skills.data ?? []
+  const addRef = useReturnFocus<HTMLButtonElement>(adding)
 
   return (
     <div className="space-y-3">
@@ -52,7 +52,7 @@ export function BulletEditor({ experienceId }: { experienceId: number }) {
               key={bullet.id}
               bullet={bullet}
               experienceId={experienceId}
-              skills={skillList}
+              skills={skills.data}
             />
           ))}
         </ul>
@@ -60,7 +60,7 @@ export function BulletEditor({ experienceId }: { experienceId: number }) {
       {skills.isError && <ErrorMessage error={skills.error} />}
       {adding ? (
         <BulletForm
-          skills={skillList}
+          skills={skills.data}
           submitLabel="Add bullet"
           pending={create.isPending}
           error={create.error}
@@ -74,6 +74,7 @@ export function BulletEditor({ experienceId }: { experienceId: number }) {
         />
       ) : (
         <Button
+          ref={addRef}
           type="button"
           variant="outline"
           size="sm"
@@ -93,14 +94,17 @@ function BulletItem({
 }: {
   bullet: Bullet
   experienceId: number
-  skills: Skill[]
+  skills: Skill[] | undefined
 }) {
   const update = useUpdateBullet(experienceId)
   const remove = useDeleteBullet(experienceId)
   const [editing, setEditing] = useState(false)
+  const editRef = useReturnFocus<HTMLButtonElement>(editing)
   const verifiedId = useId()
 
-  const skillNames = new Map(skills.map((skill) => [skill.id, skill.name]))
+  const skillNames = new Map(
+    (skills ?? []).map((skill) => [skill.id, skill.name]),
+  )
 
   if (editing) {
     return (
@@ -142,10 +146,15 @@ function BulletItem({
         </div>
         <div className="flex items-center gap-1">
           <Button
+            ref={editRef}
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => setEditing(true)}
+            onClick={() => {
+              // The toggle shares this mutation; don't carry its error into the form.
+              update.reset()
+              setEditing(true)
+            }}
           >
             Edit
           </Button>
@@ -180,7 +189,7 @@ function BulletItem({
           </Badge>
         ))}
       </div>
-      <ErrorMessage error={update.error ?? remove.error} />
+      <ErrorMessage error={update.error ?? remove.error} withFields />
     </li>
   )
 }
@@ -195,7 +204,8 @@ function BulletForm({
   onCancel,
 }: {
   initial?: Bullet
-  skills: Skill[]
+  /** `undefined` while the skills are loading. */
+  skills: Skill[] | undefined
   submitLabel: string
   pending: boolean
   error: unknown
@@ -214,7 +224,10 @@ function BulletForm({
       text,
       metrics: optional(metrics),
       verified,
-      skill_ids: skillIds,
+      // Drop skills deleted since the form opened; the API would reject them.
+      skill_ids: skills
+        ? skillIds.filter((id) => skills.some((skill) => skill.id === id))
+        : skillIds,
     })
   }
 
@@ -232,6 +245,7 @@ function BulletForm({
             onChange={(e) => setText(e.target.value)}
             rows={2}
             required
+            autoFocus
           />
         )}
       </Field>
@@ -278,16 +292,22 @@ function SkillPicker({
   onChange,
   errors,
 }: {
-  skills: Skill[]
+  skills: Skill[] | undefined
   selected: number[]
   onChange: (ids: number[]) => void
   errors: string[]
 }) {
   const baseId = useId()
+  const errorId = `${baseId}-error`
   return (
-    <fieldset className="space-y-2">
+    <fieldset
+      className="space-y-2"
+      aria-describedby={errors.length > 0 ? errorId : undefined}
+    >
       <legend className="text-sm font-medium">Skills</legend>
-      {skills.length === 0 ? (
+      {!skills ? (
+        <LoadingMessage>Loading skills…</LoadingMessage>
+      ) : skills.length === 0 ? (
         <EmptyMessage>
           No skills yet. Add some in the Skills section to tag this bullet.
         </EmptyMessage>
@@ -317,7 +337,9 @@ function SkillPicker({
         </div>
       )}
       {errors.length > 0 && (
-        <p className="text-sm text-destructive">{errors.join(' ')}</p>
+        <p id={errorId} className="text-sm text-destructive">
+          {errors.join(' ')}
+        </p>
       )}
     </fieldset>
   )

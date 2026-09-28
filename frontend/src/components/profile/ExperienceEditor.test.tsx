@@ -122,12 +122,22 @@ describe('ExperienceEditor', () => {
     )
     expect(api.writes()).toEqual([])
     await user.click(
-      within(item).getByRole('button', { name: 'Confirm delete' }),
+      within(item).getByRole('button', {
+        name: 'Confirm delete experience',
+      }),
     )
 
     expect(await screen.findByText(/No experiences yet/)).toBeInTheDocument()
     expect(api.writes()).toEqual([
       { method: 'DELETE', path: '/api/experiences/1', body: undefined },
+    ])
+    // The deleted experience's bullets are dropped from the cache, not refetched.
+    const afterDelete = api.requests.slice(
+      api.requests.findIndex((r) => r.method === 'DELETE'),
+    )
+    expect(afterDelete.map((r) => `${r.method} ${r.path}`)).toEqual([
+      'DELETE /api/experiences/1',
+      'GET /api/experiences',
     ])
   })
 
@@ -173,6 +183,29 @@ describe('ExperienceEditor', () => {
         'Value error, end_date must not be before start_date',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('moves focus into the form and back to the trigger', async () => {
+    const user = userEvent.setup()
+    createFakeApi({ experiences: [fixtures.experience()] })
+    renderWithQueryClient(<ExperienceEditor />)
+    const item = await screen.findByRole('article', {
+      name: 'Software Engineer at Acme Widgets Inc.',
+    })
+
+    await user.click(within(item).getByRole('button', { name: 'Edit' }))
+    expect(within(item).getByLabelText('Organization')).toHaveFocus()
+    await user.click(within(item).getByRole('button', { name: 'Cancel' }))
+    expect(within(item).getByRole('button', { name: 'Edit' })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'Add experience' }))
+    await user.click(
+      within(screen.getByRole('form', { name: 'New experience' })).getByRole(
+        'button',
+        { name: 'Cancel' },
+      ),
+    )
+    expect(screen.getByRole('button', { name: 'Add experience' })).toHaveFocus()
   })
 
   it('shows the error detail when the list fails to load', async () => {

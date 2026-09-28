@@ -183,6 +183,16 @@ export function createFakeApi(
       state.bullets[index] = updated
       return json(200, updated)
     }
+    if ((m = path.match(/^\/api\/skills\/(\d+)$/)) && method === 'DELETE') {
+      const id = Number(m[1])
+      if (!state.skills.some((s) => s.id === id)) return notFound
+      state.skills = state.skills.filter((s) => s.id !== id)
+      state.bullets = state.bullets.map((b) => ({
+        ...b,
+        skill_ids: b.skill_ids.filter((s) => s !== id),
+      }))
+      return json(204, null)
+    }
     if (path === '/api/skills' && method === 'GET')
       return json(200, state.skills)
     if (path === '/api/answers' && method === 'GET')

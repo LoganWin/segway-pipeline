@@ -25,11 +25,13 @@ import {
   Field,
   LoadingMessage,
 } from './shared'
+import { useReturnFocus } from './focus'
 
 export function AnswersEditor() {
   const answers = useAnswers()
   const create = useCreateAnswer()
   const [adding, setAdding] = useState(false)
+  const addRef = useReturnFocus<HTMLButtonElement>(adding)
 
   return (
     <Card aria-labelledby="answers-title">
@@ -43,6 +45,7 @@ export function AnswersEditor() {
         {!adding && (
           <CardAction>
             <Button
+              ref={addRef}
               type="button"
               variant="outline"
               onClick={() => setAdding(true)}
@@ -89,6 +92,7 @@ function AnswerItem({ answer }: { answer: Answer }) {
   const update = useUpdateAnswer()
   const remove = useDeleteAnswer()
   const [editing, setEditing] = useState(false)
+  const editRef = useReturnFocus<HTMLButtonElement>(editing)
 
   if (editing) {
     return (
@@ -127,6 +131,7 @@ function AnswerItem({ answer }: { answer: Answer }) {
         </div>
         <div className="flex gap-1">
           <Button
+            ref={editRef}
             type="button"
             variant="ghost"
             size="sm"
@@ -183,6 +188,7 @@ function AnswerForm({
             onChange={(e) => setQuestionKey(e.target.value)}
             placeholder="e.g. why_this_company"
             required
+            autoFocus
           />
         )}
       </Field>

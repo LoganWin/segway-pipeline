@@ -1,8 +1,9 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { errorMessage, fieldErrors } from './api'
+import { errorMessage, errorMessages, fieldErrors } from './api'
+import { useReturnFocus } from './focus'
 
 /** A labelled control with its 422 messages underneath. */
 export function Field({
@@ -42,12 +43,32 @@ export function Field({
   )
 }
 
-/** The error's `detail` message; field-level 422 messages are shown by `Field`. */
-export function ErrorMessage({ error }: { error: unknown }) {
+/**
+ * The error's `detail` message. Field-level 422 messages are shown by `Field`;
+ * pass `withFields` where no form shows them, to list them here instead.
+ */
+export function ErrorMessage({
+  error,
+  withFields = false,
+}: {
+  error: unknown
+  withFields?: boolean
+}) {
   if (!error) return null
+  const messages = withFields ? errorMessages(error) : [errorMessage(error)]
   return (
     <Alert variant="destructive">
-      <AlertDescription>{errorMessage(error)}</AlertDescription>
+      <AlertDescription>
+        {messages.length === 1 ? (
+          messages[0]
+        ) : (
+          <ul className="list-disc pl-4">
+            {messages.map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+        )}
+      </AlertDescription>
     </Alert>
   )
 }
@@ -75,9 +96,16 @@ export function DeleteButton({
   pending?: boolean
 }) {
   const [confirming, setConfirming] = useState(false)
+  const triggerRef = useReturnFocus<HTMLButtonElement>(confirming)
+  const confirmRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (confirming) confirmRef.current?.focus()
+  }, [confirming])
+
   if (!confirming) {
     return (
       <Button
+        ref={triggerRef}
         type="button"
         variant="ghost"
         size="sm"
@@ -91,9 +119,11 @@ export function DeleteButton({
   return (
     <span className="inline-flex gap-1">
       <Button
+        ref={confirmRef}
         type="button"
         variant="destructive"
         size="sm"
+        aria-label={`Confirm ${label.toLowerCase()}`}
         disabled={pending}
         onClick={() => {
           setConfirming(false)

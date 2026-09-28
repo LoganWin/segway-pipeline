@@ -25,11 +25,13 @@ import {
   Field,
   LoadingMessage,
 } from './shared'
+import { useReturnFocus } from './focus'
 
 export function SkillsEditor() {
   const skills = useSkills()
   const create = useCreateSkill()
   const [adding, setAdding] = useState(false)
+  const addRef = useReturnFocus<HTMLButtonElement>(adding)
 
   return (
     <Card aria-labelledby="skills-title">
@@ -43,6 +45,7 @@ export function SkillsEditor() {
         {!adding && (
           <CardAction>
             <Button
+              ref={addRef}
               type="button"
               variant="outline"
               onClick={() => setAdding(true)}
@@ -89,6 +92,7 @@ function SkillItem({ skill }: { skill: Skill }) {
   const update = useUpdateSkill()
   const remove = useDeleteSkill()
   const [editing, setEditing] = useState(false)
+  const editRef = useReturnFocus<HTMLButtonElement>(editing)
 
   if (editing) {
     return (
@@ -127,6 +131,7 @@ function SkillItem({ skill }: { skill: Skill }) {
         </div>
         <div className="flex gap-1">
           <Button
+            ref={editRef}
             type="button"
             variant="ghost"
             size="sm"
@@ -188,6 +193,7 @@ function SkillForm({
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
+              autoFocus
             />
           )}
         </Field>
