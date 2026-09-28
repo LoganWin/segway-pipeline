@@ -14,7 +14,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-003 | DB models + initial migration | 1 | T-001 | codex | done |
 | T-004 | Profile & experience API | 1 | T-003 | claude | done |
 | T-005 | Jobs & application status API | 1 | T-003 | codex | done |
-| T-006 | Dashboard UI | 1 | T-002, T-005 | codex | in-progress |
+| T-006 | Dashboard UI | 1 | T-002, T-005 | codex → claude | in-progress |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | claude | in-progress |
 | T-008 | Profile service layering cleanup | 1 | T-005 | — | todo |
 
