@@ -14,8 +14,8 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-003 | DB models + initial migration | 1 | T-001 | codex | done |
 | T-004 | Profile & experience API | 1 | T-003 | claude | done |
 | T-005 | Jobs & application status API | 1 | T-003 | codex | done |
-| T-006 | Dashboard UI | 1 | T-002, T-005 | — | todo |
-| T-007 | Profile editor UI | 1 | T-002, T-004 | — | todo |
+| T-006 | Dashboard UI | 1 | T-002, T-005 | codex | in-progress |
+| T-007 | Profile editor UI | 1 | T-002, T-004 | claude | in-progress |
 | T-008 | Profile service layering cleanup | 1 | T-005 | — | todo |
 
 T-001 and T-002 are independent: one per agent in parallel. Likewise T-004/T-005, then T-006/T-007.
@@ -163,7 +163,7 @@ Keep the summary table and the task details in sync.
 - **Review:** (claude sub-agent, 2026-09-27) Changes requested, then fixed in `15c706b`: adopted `app/api/errors.py`; services now raise domain exceptions and don't import the API layer; transitions now allow applying directly from saved/preparing/ready_for_review, ready_for_review → preparing, and offer → rejected/withdrawn (orchestrator default, open to user changes); `allowed_transitions` is included on application responses. Orchestrator verified: lint clean, 159 backend + 3 frontend tests, `schema.ts` covers all 14 routes, and a live API check of create, direct apply, 409 on an invalid transition, a typed 404 body and ordered UTC history.
 
 ### T-006 Dashboard UI
-- **Owner:** — · **Status:** todo · **Depends on:** T-002, T-005
+- **Owner:** codex · **Status:** in-progress · **Depends on:** T-002, T-005
 - **Scope:** `frontend/src/pages/Dashboard*`, `frontend/src/pages/JobDetail*`, `frontend/src/components/jobs/**`
 - **Acceptance criteria:**
   - Dashboard: job table (company, title, status, updated) with status filter, plus a board view grouped by status.
@@ -174,7 +174,7 @@ Keep the summary table and the task details in sync.
 - **Review:**
 
 ### T-007 Profile editor UI
-- **Owner:** — · **Status:** todo · **Depends on:** T-002, T-004
+- **Owner:** claude · **Status:** in-progress · **Depends on:** T-002, T-004
 - **Scope:** `frontend/src/pages/Profile*`, `frontend/src/components/profile/**`
 - **Acceptance criteria:**
   - Edit profile fields; list/add/edit/delete experiences and their bullets; manage skills and reusable answers.
