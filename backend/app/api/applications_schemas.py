@@ -1,8 +1,9 @@
 """Application API contracts, separate from persistence models."""
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict, computed_field
 
 from app.models import ApplicationStatus
+from app.services.applications import ALLOWED_TRANSITIONS
 
 
 class TransitionRequest(BaseModel):
@@ -22,6 +23,11 @@ class ApplicationResponse(BaseModel):
     notes: str | None
     created_at: AwareDatetime
     updated_at: AwareDatetime
+
+    @computed_field
+    @property
+    def allowed_transitions(self) -> list[ApplicationStatus]:
+        return sorted(ALLOWED_TRANSITIONS[self.status])
 
 
 class StatusEventResponse(BaseModel):

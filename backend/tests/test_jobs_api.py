@@ -2,7 +2,6 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
 from sqlmodel import Session, select
@@ -10,7 +9,7 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.main import create_app
 from app.models import Application, ApplicationStatus, Job, StatusEvent
-from app.services.applications import transition
+from app.services.applications import ConflictError, transition
 
 
 @pytest.fixture
@@ -55,6 +54,7 @@ def test_minimal_create_and_initial_history(client: TestClient, session: Session
     application = job["application"]
     assert application["job_id"] == job["id"]
     assert application["status"] == "saved"
+    assert application["allowed_transitions"] == sorted(EXPECTED_TRANSITIONS["saved"])
     for record in (job, application):
         assert_utc(record["created_at"])
         assert_utc(record["updated_at"])
@@ -165,37 +165,83 @@ def test_invalid_job_creation_writes_nothing(
     assert session.exec(select(StatusEvent)).all() == []
 
 
-def test_unknown_ids(client: TestClient) -> None:
-    assert client.get("/api/jobs/999").status_code == 404
-    assert (
-        client.put(
-            "/api/jobs/999", json={"title": "Example", "url": "https://example.test"}
-        ).status_code
-        == 404
-    )
-    assert client.delete("/api/jobs/999").status_code == 404
-    assert client.get("/api/applications/999/history").status_code == 404
-    assert (
-        client.post("/api/applications/999/transition", json={"to_status": "preparing"}).status_code
-        == 404
-    )
+@pytest.mark.parametrize(
+    ("method", "path", "payload", "detail"),
+    [
+        ("GET", "/api/jobs/999", None, "Job 999 not found"),
+        (
+            "PUT",
+            "/api/jobs/999",
+            {"title": "Example", "url": "https://example.test"},
+            "Job 999 not found",
+        ),
+        ("DELETE", "/api/jobs/999", None, "Job 999 not found"),
+        ("GET", "/api/applications/999/history", None, "Application 999 not found"),
+        (
+            "POST",
+            "/api/applications/999/transition",
+            {"to_status": "preparing"},
+            "Application 999 not found",
+        ),
+    ],
+)
+def test_unknown_ids(
+    client: TestClient, method: str, path: str, payload: dict[str, str] | None, detail: str
+) -> None:
+    response = client.request(method, path, json=payload)
+    assert response.status_code == 404
+    assert response.json() == {"detail": detail}
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "code"),
+    [
+        ("/api/jobs/{job_id}", "get", "404"),
+        ("/api/jobs/{job_id}", "put", "404"),
+        ("/api/jobs/{job_id}", "delete", "404"),
+        ("/api/applications/{application_id}/history", "get", "404"),
+        ("/api/applications/{application_id}/transition", "post", "404"),
+        ("/api/applications/{application_id}/transition", "post", "409"),
+    ],
+)
+def test_openapi_error_contract(client: TestClient, path: str, method: str, code: str) -> None:
+    schema = client.get("/openapi.json").json()
+    responses = schema["paths"][path][method]["responses"]
+    assert responses[code]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ErrorResponse"
+    }
+    assert responses["422"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/HTTPValidationError"
+    }
+    error_schema = schema["components"]["schemas"]["ErrorResponse"]
+    assert error_schema["required"] == ["detail"]
+    assert error_schema["properties"]["detail"]["type"] == "string"
 
 
 @pytest.mark.parametrize("payload", [{}, {"to_status": "unknown"}, {"to_status": None}])
 def test_transition_validation(client: TestClient, payload: dict[str, object]) -> None:
     app_id = application_id(client, create_job(client))
     before = client.get(f"/api/applications/{app_id}/history").json()
-    assert client.post(f"/api/applications/{app_id}/transition", json=payload).status_code == 422
+    response = client.post(f"/api/applications/{app_id}/transition", json=payload)
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert isinstance(errors, list) and errors
+    assert errors[0]["loc"] == ["body", "to_status"]
+    assert isinstance(errors[0]["msg"], str)
+    assert isinstance(errors[0]["type"], str)
     assert client.get(f"/api/applications/{app_id}/history").json() == before
 
 
 # Independent expected policy exercises all 64 source/destination combinations.
-FORWARD = {
-    "saved": "preparing",
-    "preparing": "ready_for_review",
-    "ready_for_review": "applied",
-    "applied": "interviewing",
-    "interviewing": "offer",
+EXPECTED_TRANSITIONS: dict[str, set[str]] = {
+    "saved": {"preparing", "applied", "rejected", "withdrawn"},
+    "preparing": {"ready_for_review", "applied", "rejected", "withdrawn"},
+    "ready_for_review": {"preparing", "applied", "rejected", "withdrawn"},
+    "applied": {"interviewing", "rejected", "withdrawn"},
+    "interviewing": {"offer", "rejected", "withdrawn"},
+    "offer": {"rejected", "withdrawn"},
+    "rejected": set(),
+    "withdrawn": set(),
 }
 
 
@@ -216,9 +262,9 @@ def test_transition_matrix(
     session.commit()
     before = client.get(f"/api/jobs/{job_id}").json()
     old_history = client.get(f"/api/applications/{app_id}/history").json()
-    allowed = from_status in FORWARD and (
-        to_status == FORWARD[from_status] or to_status in ("rejected", "withdrawn")
-    )
+    assert before["application"]["allowed_transitions"] == sorted(EXPECTED_TRANSITIONS[from_status])
+    assert client.get("/api/jobs").json()[0]["application"] == before["application"]
+    allowed = to_status in EXPECTED_TRANSITIONS[from_status]
     response = client.post(
         f"/api/applications/{app_id}/transition",
         json={"to_status": to_status, "note": "Manual status update"},
@@ -228,6 +274,7 @@ def test_transition_matrix(
     if allowed:
         assert response.status_code == 200
         assert response.json()["status"] == to_status
+        assert response.json()["allowed_transitions"] == sorted(EXPECTED_TRANSITIONS[to_status])
         assert after["application"] == response.json()
         assert after["updated_at"] > before["updated_at"]
         assert after["application"]["updated_at"] > before["application"]["updated_at"]
@@ -240,7 +287,10 @@ def test_transition_matrix(
         assert_utc(event["at"])
     else:
         assert response.status_code == 409
-        assert f"from {from_status} to {to_status}" in response.json()["detail"]
+        choices = ", ".join(sorted(EXPECTED_TRANSITIONS[from_status])) or "none (terminal status)"
+        assert response.json() == {
+            "detail": f"Cannot transition from {from_status} to {to_status}. Allowed: {choices}"
+        }
         assert after == before
         assert history == old_history
 
@@ -283,9 +333,8 @@ def test_stale_transition_does_not_append_history(client: TestClient, engine: En
             ).status_code
             == 200
         )
-        with pytest.raises(HTTPException) as error:
+        with pytest.raises(ConflictError) as error:
             transition(stale, app_id, ApplicationStatus.REJECTED, None)
-        assert error.value.status_code == 409
-        assert "reload and retry" in error.value.detail
+        assert "reload and retry" in str(error.value)
     history = client.get(f"/api/applications/{app_id}/history").json()
     assert [event["to_status"] for event in history] == ["saved", "preparing"]

@@ -2,12 +2,12 @@
 
 Current status     | Allowed next statuses
 -------------------|-------------------------------------------------
-saved              | preparing, rejected, withdrawn
-preparing          | ready_for_review, rejected, withdrawn
-ready_for_review   | applied, rejected, withdrawn
+saved              | preparing, applied, rejected, withdrawn
+preparing          | ready_for_review, applied, rejected, withdrawn
+ready_for_review   | preparing, applied, rejected, withdrawn
 applied            | interviewing, rejected, withdrawn
 interviewing       | offer, rejected, withdrawn
-offer              | (terminal)
+offer              | rejected, withdrawn
 rejected           | (terminal)
 withdrawn          | (terminal)
 
@@ -16,7 +16,6 @@ one event atomically with the status update. Recording applied only tracks a
 manually submitted application; this service never submits anything to an ATS.
 """
 
-from fastapi import HTTPException
 from sqlalchemy import update
 from sqlmodel import Session, col, select
 
@@ -25,17 +24,28 @@ from app.models.entities import utc_now
 
 ALLOWED_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] = {
     ApplicationStatus.SAVED: frozenset(
-        (ApplicationStatus.PREPARING, ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN)
+        (
+            ApplicationStatus.PREPARING,
+            ApplicationStatus.APPLIED,
+            ApplicationStatus.REJECTED,
+            ApplicationStatus.WITHDRAWN,
+        )
     ),
     ApplicationStatus.PREPARING: frozenset(
         (
             ApplicationStatus.READY_FOR_REVIEW,
+            ApplicationStatus.APPLIED,
             ApplicationStatus.REJECTED,
             ApplicationStatus.WITHDRAWN,
         )
     ),
     ApplicationStatus.READY_FOR_REVIEW: frozenset(
-        (ApplicationStatus.APPLIED, ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN)
+        (
+            ApplicationStatus.PREPARING,
+            ApplicationStatus.APPLIED,
+            ApplicationStatus.REJECTED,
+            ApplicationStatus.WITHDRAWN,
+        )
     ),
     ApplicationStatus.APPLIED: frozenset(
         (ApplicationStatus.INTERVIEWING, ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN)
@@ -43,16 +53,24 @@ ALLOWED_TRANSITIONS: dict[ApplicationStatus, frozenset[ApplicationStatus]] = {
     ApplicationStatus.INTERVIEWING: frozenset(
         (ApplicationStatus.OFFER, ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN)
     ),
-    ApplicationStatus.OFFER: frozenset(),
+    ApplicationStatus.OFFER: frozenset((ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN)),
     ApplicationStatus.REJECTED: frozenset(),
     ApplicationStatus.WITHDRAWN: frozenset(),
 }
 
 
+class NotFoundError(Exception):
+    """The requested application does not exist."""
+
+
+class ConflictError(Exception):
+    """The requested transition conflicts with the current application status."""
+
+
 def get_application(session: Session, application_id: int) -> Application:
     application = session.get(Application, application_id)
     if application is None:
-        raise HTTPException(status_code=404, detail=f"Application {application_id} not found")
+        raise NotFoundError(f"Application {application_id} not found")
     return application
 
 
@@ -64,9 +82,8 @@ def transition(
     allowed = ALLOWED_TRANSITIONS[from_status]
     if to_status not in allowed:
         choices = ", ".join(sorted(allowed)) or "none (terminal status)"
-        raise HTTPException(
-            status_code=409,
-            detail=f"Cannot transition from {from_status} to {to_status}. Allowed: {choices}",
+        raise ConflictError(
+            f"Cannot transition from {from_status} to {to_status}. Allowed: {choices}",
         )
 
     now = utc_now()
@@ -79,7 +96,7 @@ def transition(
     )
     if result.rowcount != 1:
         session.rollback()
-        raise HTTPException(status_code=409, detail="Application status changed; reload and retry")
+        raise ConflictError("Application status changed; reload and retry")
     session.exec(update(Job).where(col(Job.id) == application.job_id).values(updated_at=now))
     session.add(
         StatusEvent(

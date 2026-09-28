@@ -1,17 +1,32 @@
 """Job CRUD and atomic creation of a job's application and initial history."""
 
-from fastapi import HTTPException
+from dataclasses import asdict, dataclass
+
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
-from app.api.jobs_schemas import JobWrite
 from app.models import Application, ApplicationStatus, Job, StatusEvent
+
+
+class NotFoundError(Exception):
+    """The requested job does not exist."""
+
+
+@dataclass(frozen=True)
+class JobData:
+    title: str
+    url: str
+    company: str = ""
+    description: str = ""
+    source: str | None = None
+    location: str | None = None
+    ats_type: str | None = None
 
 
 def get_job(session: Session, job_id: int) -> Job:
     job = session.get(Job, job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        raise NotFoundError(f"Job {job_id} not found")
     return job
 
 
@@ -25,8 +40,8 @@ def list_jobs(session: Session, status: ApplicationStatus | None, company: str |
     return list(session.exec(statement.order_by(col(Job.updated_at).desc(), col(Job.id).desc())))
 
 
-def create_job(session: Session, data: JobWrite) -> Job:
-    job = Job(**data.model_dump())
+def create_job(session: Session, data: JobData) -> Job:
+    job = Job(**asdict(data))
     application = Application(job=job)
     event = StatusEvent(application=application, to_status=ApplicationStatus.SAVED)
     session.add_all([job, application, event])
@@ -35,9 +50,9 @@ def create_job(session: Session, data: JobWrite) -> Job:
     return job
 
 
-def replace_job(session: Session, job_id: int, data: JobWrite) -> Job:
+def replace_job(session: Session, job_id: int, data: JobData) -> Job:
     job = get_job(session, job_id)
-    job.sqlmodel_update(data.model_dump())
+    job.sqlmodel_update(asdict(data))
     session.add(job)
     session.commit()
     session.refresh(job)
