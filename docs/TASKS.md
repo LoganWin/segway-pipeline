@@ -15,7 +15,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-004 | Profile & experience API | 1 | T-003 | claude | done |
 | T-005 | Jobs & application status API | 1 | T-003 | codex | done |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | codex | in-progress |
-| T-007 | Profile editor UI | 1 | T-002, T-004 | claude | in-progress |
+| T-007 | Profile editor UI | 1 | T-002, T-004 | claude | review |
 | T-008 | Profile service layering cleanup | 1 | T-005 | — | todo |
 
 T-001 and T-002 are independent: one per agent in parallel. Likewise T-004/T-005, then T-006/T-007.
@@ -174,13 +174,35 @@ Keep the summary table and the task details in sync.
 - **Review:**
 
 ### T-007 Profile editor UI
-- **Owner:** claude · **Status:** in-progress · **Depends on:** T-002, T-004
+- **Owner:** claude · **Status:** review · **Depends on:** T-002, T-004
 - **Scope:** `frontend/src/pages/Profile*`, `frontend/src/components/profile/**`
 - **Acceptance criteria:**
   - Edit profile fields; list/add/edit/delete experiences and their bullets; manage skills and reusable answers.
   - Bullets can be tagged with skills and marked verified.
   - Vitest component tests for the experience and bullet editors.
 - **Handoff:**
+  - **What changed:**
+    - `pages/Profile.tsx` now composes four editors from `components/profile/`: `ProfileForm`, `ExperienceEditor` (each experience with a `BulletEditor` underneath), `SkillsEditor` and `AnswersEditor`.
+    - `components/profile/api.ts`: TanStack Query hooks over the typed `api` client for every profile route. All types are aliases of `components['schemas']`, none hand-written. `useProfile()` resolves to `null` on a 404 ("not set yet"), and `ProfileForm` then shows an empty form that saves with `PUT`. Mutations invalidate the affected lists (deleting a skill also invalidates every bullet list, since the links go too). Failed calls throw an `ApiError`: a string `detail` (404/409 `ErrorResponse`) becomes its message, and a 422 `detail` list is split into `fieldErrors` keyed by the body field (`loc` without `"body"`). Messages that point at no field, such as `end_date < start_date` (`loc: ["body"]`), go into the message.
+    - `components/profile/shared.tsx`: `Field` (label, control and its 422 messages, wired up with `aria-invalid`/`aria-describedby`), `ErrorMessage` (an `Alert` with the `detail`), loading/empty messages, and a `DeleteButton` that asks for confirmation inline.
+    - Bullets: add, edit and delete, a `Switch` to toggle verified, and skill tagging through a checkbox group of `/api/skills`, with the linked skills shown as badges. Toggling verified sends the whole bullet (`text`, `metrics`, `skill_ids`) with the new flag. A 422 on `skill_ids` (unknown ids) shows under the skill picker.
+    - Experiences: kind (native select), org, title, start/end dates, location. Skills: name, category, proficiency. Answers: question_key, text. Each has list, add, inline edit and delete, plus loading, empty and error states.
+  - **Verification:**
+    - `make lint`: clean. ruff, format and pyright pass, and eslint has 0 errors and 2 warnings (`react-refresh/only-export-components` in the shadcn-generated `ui/button.tsx` and `ui/badge.tsx`, which export `buttonVariants`/`badgeVariants`). tsc and prettier are clean.
+    - `make test`: 159 backend passed, and 18 frontend passed (15 new). `pnpm --dir frontend build` succeeds.
+    - The new tests are `ExperienceEditor.test.tsx` (7: loading→empty, list with bullets, add, edit as a full PUT, delete with confirmation, 422 field and model-level messages, load error `detail`) and `BulletEditor.test.tsx` (8: empty, list with metrics/verified/skills, verified toggle sending the whole bullet including `skill_ids` in both directions, add with skill tags, edit changing tags, delete, a `skill_ids` 422 under the picker, a 404 `detail` on a failed toggle). They mock `fetch` with an in-memory fake of the profile API (`components/profile/test-utils.ts`) and assert the exact request bodies.
+    - Live check: backend on 8001 against `/tmp/t007.db` (migrated), and Vite on 5174 through a temporary, uncommitted config override that proxies `/api` to 8001. `/profile` served, the profile components transformed, and the calls the UI makes returned the shapes the client expects through the proxy: `GET /api/profile` 404 `ErrorResponse`, then PUT 200, skill 409, both kinds of experience 422, `skill_ids` 422, bullet create/verify PUT, DELETE 204. Everything was stopped and the temp DB and config removed afterwards. There was no browser click-through; the UI flows are covered by the component tests.
+  - **Deviations:**
+    - Outside the board's `Scope` (allowed by the orchestrator): shadcn components in `components/ui/` and their dependencies in `package.json`/`pnpm-lock.yaml`. `pages/Profile.tsx` was rewritten; App.tsx routing is unchanged.
+    - The hooks live in `components/profile/api.ts` rather than `src/api/profile.ts`, to stay inside the board's scope.
+    - The tests need two jsdom shims, both installed by `test-utils.ts` rather than the global `src/test/setup.ts`: a `Request` that resolves the client's relative URLs (Node's `Request` rejects `/api/...`), and a no-op `ResizeObserver` for Radix's Checkbox. `test-utils.ts` must be imported before anything that imports `@/api/client`, because `openapi-fetch` captures `fetch`/`Request` when the client is created.
+    - `shadcn add` wrote `import { cn } from "cn"` and added the unrelated npm package `cn` as a dependency. I removed that package and pointed the imports at `@/lib/utils`. It also didn't install `class-variance-authority` or `lucide-react`, so I added both by hand. Watch for this if you add more components.
+  - **Follow-ups:**
+    - Profile `links` are one per line in a textarea, and dates use `<input type="date">`. Nothing is validated client-side beyond `required`; the API is the source of truth.
+    - Merging with T-006: both branches may add the same shadcn files and deps. Keep either copy (they're generated), but make sure no `cn` package or `from "cn"` import survives.
+    - Consider moving the jsdom shims into `src/test/setup.ts` if T-006's tests need the same `fetch` mocking.
+  - **New dependencies:** `radix-ui` (Checkbox, Label, Switch, Slot), `class-variance-authority`, `lucide-react`.
+  - **shadcn components added:** `alert`, `badge`, `button`, `checkbox`, `input`, `label`, `native-select`, `switch`, `textarea`.
 - **Review:**
 
 ### T-008 Profile service layering cleanup
