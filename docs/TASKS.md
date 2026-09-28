@@ -13,7 +13,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-002 | Frontend scaffold | 1 | — | codex | done |
 | T-003 | DB models + initial migration | 1 | T-001 | codex | done |
 | T-004 | Profile & experience API | 1 | T-003 | claude | in-progress |
-| T-005 | Jobs & application status API | 1 | T-003 | codex | in-progress |
+| T-005 | Jobs & application status API | 1 | T-003 | codex | review |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | — | todo |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | — | todo |
 
@@ -101,7 +101,7 @@ Keep the summary table and the task details in sync.
 - **Review:**
 
 ### T-005 Jobs & application status API
-- **Owner:** codex · **Status:** in-progress · **Depends on:** T-003
+- **Owner:** codex · **Status:** review · **Depends on:** T-003
 - **Scope:** `backend/app/api/jobs*.py`, `backend/app/api/applications*.py`, matching services, tests, `frontend/src/api/schema.ts` (regenerate only)
 - **Acceptance criteria:**
   - CRUD for `/api/jobs` (with filter by status and company); creating a job creates its `Application` in `saved`.
@@ -110,6 +110,12 @@ Keep the summary table and the task details in sync.
   - Tests cover valid and invalid transitions.
   - `schema.ts` regenerated.
 - **Handoff:**
+  - **What changed:** Added separate Pydantic request/response schemas and thin routers backed by jobs/application services. `POST /api/jobs` atomically creates a job, its `saved` application, and an initial `null → saved` history event; title and URL are required, company/description default to empty strings. `GET /api/jobs` supports exact company and status filters combined with AND, ordered by updated timestamp then ID descending. Job responses include their application (including required integer job/application IDs) and UTC ISO-8601 timestamps. `GET/PUT/DELETE /api/jobs/{job_id}` reads, replaces job fields, and deletes the job with its application/history via existing cascades. PUT resets omitted optional fields to defaults; status cannot be overwritten through job requests.
+  - **Transitions/history:** `POST /api/applications/{application_id}/transition` accepts `to_status` and optional `note`. The service documents and owns the full transition table: forward steps, rejection/withdrawal from any non-terminal, and terminal offer/rejected/withdrawn. Invalid transitions return 409 with current/requested states and allowed destinations. A conditional status update rejects stale writes with 409; status, application/job updated timestamps, and the appended event commit together. `GET /api/applications/{application_id}/history` sorts by timestamp then ID. Missing jobs/applications return 404; invalid request data returns 422. Application and history FK IDs are assigned internally from required route IDs or newly persisted parents; no nullable parent IDs are accepted from request bodies. Tracking `applied` performs no external submission.
+  - **Verification:** `make setup`, `make lint` (ruff, formatting, strict pyright, frontend ESLint/TypeScript/Prettier), and `make test` pass: **125 backend + 3 frontend tests**. The 81 new tests cover job CRUD/defaults/validation/cascades/404s, combined filters and sorting, UTC serialization, all 64 transition pairs, stale writes, complete lifecycle history, isolation, and timestamp ties. Regenerated `frontend/src/api/schema.ts` using `make types` against this branch's running API and verified the new routes are present; the temporary server was stopped. `git diff --check` passed.
+  - **Deviations:** No model or migration changes. Router imports and two `/api` registrations in `app/main.py` are the minimal shared-file edits explicitly authorized for this task. IPv4 localhost:8000 already had a server, so generation used this branch's uvicorn on IPv6 localhost (`--host ::1 --port 8000`), leaving the existing server untouched. Setup/checks used `UV_CACHE_DIR=/tmp/segway-codex-uv-cache` for sandbox compatibility.
+  - **Follow-ups:** On integration with T-004, preserve both sets of router registrations and regenerate `schema.ts` against the combined API. T-006 can use nested `job.application.id/status` and PUT for edits. Duplicate URLs remain allowed, matching existing persistence behavior; deduplication is outside these acceptance criteria. The orchestrator handles cross-review and merging; nothing pushed.
+  - **New dependencies:** None.
 - **Review:**
 
 ### T-006 Dashboard UI
