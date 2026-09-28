@@ -2,7 +2,7 @@
 
 AI Job Applier: a personal, local-first tool that tracks jobs, matches them against a verified experience database, compiles tailored one-page resumes, and (later) fills ATS forms, with human approval before anything is submitted.
 
-**Status:** planning done; Phase 1 (Personal ATS) is next, starting with T-001 (backend scaffold) and T-002 (frontend scaffold).
+**Status:** Phase 1 (Personal ATS) is complete: profile and experience editor, job dashboard and board, status tracking with history. Phase 2 (AI matching) is next.
 
 ## Docs
 
@@ -27,7 +27,6 @@ make migrate
 make dev               # API :8000, UI :5173
 ```
 
-(The `make` targets are created by tasks T-001 and T-002.)
 
 ## Working with Claude Code and Codex
 
