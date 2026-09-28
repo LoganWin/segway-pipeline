@@ -1,45 +1,85 @@
-"""Business logic for the profile, experiences, bullets, skills, and reusable answers."""
+"""Business logic for the profile, experiences, bullets, skills, and reusable answers.
+
+Writes take this module's frozen dataclasses (full replacements, like the API's requests), and
+failures raise the domain exceptions below; the route layer maps them to HTTP errors.
+"""
 
 from collections.abc import Sequence
+from dataclasses import asdict, dataclass, field
+from datetime import date
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, col, select
 
-from app.api.profile_schemas import (
-    AnswerRequest,
-    BulletRequest,
-    ExperienceRequest,
-    ProfileRequest,
-    SkillRequest,
-)
-from app.models import Answer, Bullet, Experience, Profile, Skill
+from app.models import Answer, Bullet, Experience, ExperienceKind, Profile, Skill
 from app.models.entities import utc_now
 
 PROFILE_ID = 1
 
 
-class ServiceError(Exception):
-    status_code = 400
+class NotFoundError(Exception):
+    """The requested profile record does not exist."""
 
 
-class NotFoundError(ServiceError):
-    status_code = 404
+class ConflictError(Exception):
+    """The write would duplicate a unique skill name or answer question key."""
 
 
-class ConflictError(ServiceError):
-    status_code = 409
+class InvalidReferenceError(Exception):
+    """Field `field` of the written data refers to records that don't exist."""
 
-
-class InvalidReferenceError(ServiceError):
-    """A request field points at records that don't exist; reported as a standard 422."""
-
-    status_code = 422
-
-    def __init__(self, message: str, loc: tuple[str, ...], input_value: object) -> None:
+    def __init__(self, message: str, field: str, value: object) -> None:
         super().__init__(message)
-        self.loc = loc
-        self.input_value = input_value
+        self.field = field
+        self.value = value
+
+
+@dataclass(frozen=True)
+class ProfileData:
+    name: str
+    email: str
+    phone: str | None = None
+    location: str | None = None
+    links: list[str] = field(default_factory=list[str])
+    work_authorization: str | None = None
+
+
+@dataclass(frozen=True)
+class ExperienceData:
+    kind: ExperienceKind
+    org: str
+    title: str
+    start_date: date | None = None
+    end_date: date | None = None
+    location: str | None = None
+
+
+@dataclass(frozen=True)
+class BulletData:
+    """`skill_ids` replaces the bullet's linked skills."""
+
+    text: str
+    metrics: str | None = None
+    verified: bool = False
+    skill_ids: list[int] = field(default_factory=list[int])
+
+
+@dataclass(frozen=True)
+class SkillData:
+    name: str
+    category: str | None = None
+    proficiency: str | None = None
+
+
+@dataclass(frozen=True)
+class AnswerData:
+    question_key: str
+    text: str
+
+
+def _bullet_fields(data: BulletData) -> dict[str, object]:
+    return {"text": data.text, "metrics": data.metrics, "verified": data.verified}
 
 
 def _save[T: (Profile, Experience, Bullet, Skill, Answer)](
@@ -68,12 +108,12 @@ def get_profile(session: Session) -> Profile:
     return profile
 
 
-def put_profile(session: Session, data: ProfileRequest) -> Profile:
+def put_profile(session: Session, data: ProfileData) -> Profile:
     profile = session.get(Profile, PROFILE_ID)
     if profile is None:
-        profile = Profile(id=PROFILE_ID, **data.model_dump())
+        profile = Profile(id=PROFILE_ID, **asdict(data))
     else:
-        profile.sqlmodel_update(data.model_dump())
+        profile.sqlmodel_update(asdict(data))
     return _save(session, profile)
 
 
@@ -91,13 +131,13 @@ def get_experience(session: Session, experience_id: int) -> Experience:
     return experience
 
 
-def create_experience(session: Session, data: ExperienceRequest) -> Experience:
-    return _save(session, Experience(**data.model_dump()))
+def create_experience(session: Session, data: ExperienceData) -> Experience:
+    return _save(session, Experience(**asdict(data)))
 
 
-def update_experience(session: Session, experience_id: int, data: ExperienceRequest) -> Experience:
+def update_experience(session: Session, experience_id: int, data: ExperienceData) -> Experience:
     experience = get_experience(session, experience_id)
-    experience.sqlmodel_update(data.model_dump())
+    experience.sqlmodel_update(asdict(data))
     return _save(session, experience)
 
 
@@ -117,9 +157,7 @@ def _resolve_skills(session: Session, skill_ids: list[int]) -> list[Skill]:
     found = session.exec(select(Skill).where(col(Skill.id).in_(wanted))).all()
     missing = sorted(set(wanted) - {skill.id for skill in found})
     if missing:
-        raise InvalidReferenceError(
-            f"Unknown skill ids: {missing}", ("body", "skill_ids"), skill_ids
-        )
+        raise InvalidReferenceError(f"Unknown skill ids: {missing}", "skill_ids", skill_ids)
     return list(found)
 
 
@@ -142,20 +180,20 @@ def get_bullet(session: Session, experience_id: int, bullet_id: int) -> Bullet:
     return bullet
 
 
-def create_bullet(session: Session, experience_id: int, data: BulletRequest) -> Bullet:
+def create_bullet(session: Session, experience_id: int, data: BulletData) -> Bullet:
     get_experience(session, experience_id)
     skills = _resolve_skills(session, data.skill_ids)
-    bullet = Bullet(experience_id=experience_id, **data.model_dump(exclude={"skill_ids"}))
+    bullet = Bullet(
+        experience_id=experience_id, text=data.text, metrics=data.metrics, verified=data.verified
+    )
     bullet.skills = skills
     return _save(session, bullet)
 
 
-def update_bullet(
-    session: Session, experience_id: int, bullet_id: int, data: BulletRequest
-) -> Bullet:
+def update_bullet(session: Session, experience_id: int, bullet_id: int, data: BulletData) -> Bullet:
     bullet = get_bullet(session, experience_id, bullet_id)
     skills = _resolve_skills(session, data.skill_ids)
-    bullet.sqlmodel_update(data.model_dump(exclude={"skill_ids"}))
+    bullet.sqlmodel_update(_bullet_fields(data))
     bullet.skills = skills
     # Link-table changes don't touch the bullet row, so onupdate wouldn't fire for them.
     bullet.updated_at = utc_now()
@@ -191,15 +229,15 @@ def _skill_conflict(name: str) -> str:
     return f"Skill {name!r} already exists"
 
 
-def create_skill(session: Session, data: SkillRequest) -> Skill:
+def create_skill(session: Session, data: SkillData) -> Skill:
     _ensure_skill_name_free(session, data.name)
-    return _save(session, Skill(**data.model_dump()), _skill_conflict(data.name))
+    return _save(session, Skill(**asdict(data)), _skill_conflict(data.name))
 
 
-def update_skill(session: Session, skill_id: int, data: SkillRequest) -> Skill:
+def update_skill(session: Session, skill_id: int, data: SkillData) -> Skill:
     skill = get_skill(session, skill_id)
     _ensure_skill_name_free(session, data.name, skill_id)
-    skill.sqlmodel_update(data.model_dump())
+    skill.sqlmodel_update(asdict(data))
     return _save(session, skill, _skill_conflict(data.name))
 
 
@@ -235,15 +273,15 @@ def _answer_conflict(question_key: str) -> str:
     return f"Answer for {question_key!r} already exists"
 
 
-def create_answer(session: Session, data: AnswerRequest) -> Answer:
+def create_answer(session: Session, data: AnswerData) -> Answer:
     _ensure_question_key_free(session, data.question_key)
-    return _save(session, Answer(**data.model_dump()), _answer_conflict(data.question_key))
+    return _save(session, Answer(**asdict(data)), _answer_conflict(data.question_key))
 
 
-def update_answer(session: Session, answer_id: int, data: AnswerRequest) -> Answer:
+def update_answer(session: Session, answer_id: int, data: AnswerData) -> Answer:
     answer = get_answer(session, answer_id)
     _ensure_question_key_free(session, data.question_key, answer_id)
-    answer.sqlmodel_update(data.model_dump())
+    answer.sqlmodel_update(asdict(data))
     return _save(session, answer, _answer_conflict(data.question_key))
 
 
