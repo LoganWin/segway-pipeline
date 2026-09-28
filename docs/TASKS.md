@@ -11,7 +11,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 |---|---|---|---|---|---|
 | T-001 | Backend scaffold | 1 | — | claude | done |
 | T-002 | Frontend scaffold | 1 | — | codex | done |
-| T-003 | DB models + initial migration | 1 | T-001 | codex | in-progress |
+| T-003 | DB models + initial migration | 1 | T-001 | codex | review |
 | T-004 | Profile & experience API | 1 | T-003 | — | todo |
 | T-005 | Jobs & application status API | 1 | T-003 | — | todo |
 | T-006 | Dashboard UI | 1 | T-002, T-005 | — | todo |
@@ -71,7 +71,7 @@ Keep the summary table and the task details in sync.
 - **Review:** (claude, at merge, 2026-09-27) Approved. All acceptance criteria met; scope respected. `make types` against the merged backend leaves `schema.ts` unchanged. The Makefile add/add conflict was resolved as the handoff suggested: T-001's structure, with `test-frontend` → `pnpm test` and `lint-frontend` → `pnpm lint`. SPA routes return 200 in dev. Minor, non-blocking: `index.css` declares a `dark` variant but defines no dark tokens.
 
 ### T-003 DB models + initial migration
-- **Owner:** codex · **Status:** in-progress · **Depends on:** T-001
+- **Owner:** codex · **Status:** review · **Depends on:** T-001
 - **Scope:** `backend/app/models/**`, `backend/alembic/**`, `backend/app/db.py`, `backend/tests/**`
 - **Acceptance criteria:**
   - SQLModel tables for the Phase 1 data model in [ARCHITECTURE.md](ARCHITECTURE.md#core-data-model-phase-1).
@@ -80,6 +80,13 @@ Keep the summary table and the task details in sync.
   - Tests for relationships and the status enum.
   - Relative SQLite paths in `DATABASE_URL` resolve against `REPO_ROOT` (from `app/config.py`), so `sqlite:///data/app.db` is always `<repo>/data/app.db` whether run from the repo root or `backend/`. `data/` is created if missing. Covered by a test.
 - **Handoff:**
+  - **What changed:** All nine Phase 1 SQLModel entities plus the `BulletSkill` join table, bidirectional relationships, exact experience/document kinds and application status values, database enum checks, singleton profile, and one application per job. Profile links are a JSON string list; bullet metrics are optional text; experience dates are `start_date`/`end_date`. Mutable records have UTC `created_at`/`updated_at`; documents have `created_at`, history has `at`. Required parent foreign keys permit `None` during transient ORM construction but remain NOT NULL in SQLite. Experience deletion cascades to bullets and skill links; job deletion cascades to its application/history; deleting skills only removes links; deleting documents nulls resume references. History relationships sort by timestamp then ID.
+  - **Database/migration:** `app/db.py` resolves SQLite files against `REPO_ROOT`, creates missing parent directories, enables SQLite foreign keys on every connection, caches the app engine, and exposes the FastAPI `get_session` yield dependency. Alembic uses the same resolved settings URL, ignoring ini URL values. Initial revision `a200917fe6d8` was generated with `revision --autogenerate` against an empty temporary DB and reviewed for constraints, cascades, indexes, and downgrade order; generated SQLModel type references were replaced with standalone SQLAlchemy types. Tests use migrated temporary databases, never `data/`.
+  - **Verification:** `make setup` passed with `UV_CACHE_DIR=/tmp/segway-codex-uv-cache` (the default uv cache is outside the sandbox). `make lint` passed: ruff clean, 19 files formatted, pyright strict 0 errors/0 warnings, frontend ESLint/TypeScript/Prettier clean. `make test` passed: backend **39 passed**, frontend **3 passed**. Coverage includes relationships, ORM and database cascades, enum round trips and database rejection, singleton/unique constraints, session cleanup, relative paths from repo/backend working directories, URL preservation, settings-driven migrations, metadata drift, and downgrade/re-upgrade. A separate root `make migrate` with `DATABASE_URL` pointing to a fresh temporary `data/app.db` passed: **11 tables including alembic_version**, revision `a200917fe6d8`, no foreign-key violations.
+  - **Deviations:** The original nested Alembic config was moved to `backend/alembic.ini` during review fixes at the user's request; the root `migrate` target now invokes `uv run alembic upgrade head`. No API routes or request/response models changed, so OpenAPI regeneration was unnecessary.
+  - **Follow-ups:** T-004/T-005 can import tables from `app.models` and use `Depends(get_session)`. T-005 implements valid transitions and appends history entries; transition policy and append-only service behavior are not implemented in this persistence task. For manual Alembic commands, run `uv run alembic ...` from `backend/`. The orchestrator handles cross-review and merging; nothing was pushed.
+  - **New dependencies:** None.
+  - **Review fixes:** Set the shared SQLModel metadata naming convention for ix/uq/ck/fk/pk before model definitions and replaced initial revision `a200917fe6d8` with autogenerated/reviewed `81399f08d329`. All table constraints are named; the status-event checks are explicitly `ck_statusevent_from_status_applicationstatus` and `ck_statusevent_to_status_applicationstatus` in the migration. Added `UTCDateTime` to every datetime column (store naive UTC, reload aware UTC; naive inputs mean UTC), with UTC/non-UTC/naive round-trip tests. Defaulted Job description and company to empty strings so URL/title alone can be persisted. Moved config to `backend/alembic.ini`, corrected script/import paths, and updated the Makefile and migration fixture. Verified `make lint`, `make test` (**44 backend + 3 frontend passed**), fresh temporary-DB `make migrate`, and `cd backend && uv run alembic check` on that database (**no new upgrade operations**), using `UV_CACHE_DIR=/tmp/segway-codex-uv-cache`. Regression coverage checks constraint names and minimal job creation. No new dependencies; status remains review; nothing pushed.
 - **Review:**
 
 ### T-004 Profile & experience API
