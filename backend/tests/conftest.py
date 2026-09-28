@@ -15,7 +15,7 @@ from app.db import create_db_engine
 def migration_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Config]:
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'test.db'}")
     get_settings.cache_clear()
-    yield Config(str(Path(__file__).resolve().parents[1] / "alembic" / "alembic.ini"))
+    yield Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     get_settings.cache_clear()
 
 

@@ -56,4 +56,4 @@ else
 endif
 
 migrate:
-	cd $(BACKEND) && uv run alembic -c alembic/alembic.ini upgrade head
+	cd $(BACKEND) && uv run alembic upgrade head

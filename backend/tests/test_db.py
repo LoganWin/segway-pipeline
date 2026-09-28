@@ -84,6 +84,28 @@ def test_migration_matches_metadata_and_downgrades(
     command.check(migration_config)
 
 
+def test_migration_constraints_are_named_and_distinct(engine: Engine) -> None:
+    inspector = inspect(engine)
+    for table in inspector.get_table_names():
+        if table == "alembic_version":
+            continue
+        names = [
+            inspector.get_pk_constraint(table)["name"],
+            *(constraint["name"] for constraint in inspector.get_foreign_keys(table)),
+            *(constraint["name"] for constraint in inspector.get_unique_constraints(table)),
+            *(constraint["name"] for constraint in inspector.get_check_constraints(table)),
+            *(index["name"] for index in inspector.get_indexes(table)),
+        ]
+        assert all(names), table
+        assert len(names) == len(set(names)), table
+    assert {
+        constraint["name"] for constraint in inspector.get_check_constraints("statusevent")
+    } == {
+        "ck_statusevent_from_status_applicationstatus",
+        "ck_statusevent_to_status_applicationstatus",
+    }
+
+
 def test_migration_uses_settings_url_and_creates_parent_directory(
     migration_config: Config, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -3,8 +3,18 @@
 from datetime import UTC, date, datetime
 from enum import StrEnum
 
-from sqlalchemy import JSON, CheckConstraint, Column, Enum
+from sqlalchemy import JSON, CheckConstraint, Column, Enum, column
 from sqlmodel import Field, Relationship, SQLModel
+
+from app.models.types import UTCDateTime
+
+SQLModel.metadata.naming_convention = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(column_0_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
 
 
 def utc_now() -> datetime:
@@ -49,12 +59,14 @@ def enum_type(enum: type[StrEnum]) -> Enum:
 
 
 class Timestamped(SQLModel):
-    created_at: datetime = Field(default_factory=utc_now)
-    updated_at: datetime = Field(default_factory=utc_now, sa_column_kwargs={"onupdate": utc_now})
+    created_at: datetime = Field(default_factory=utc_now, sa_type=UTCDateTime)
+    updated_at: datetime = Field(
+        default_factory=utc_now, sa_type=UTCDateTime, sa_column_kwargs={"onupdate": utc_now}
+    )
 
 
 class Profile(Timestamped, table=True):
-    __table_args__ = (CheckConstraint("id = 1", name="ck_profile_singleton"),)
+    __table_args__ = (CheckConstraint(column("id") == 1, name="singleton"),)
 
     id: int = Field(default=1, primary_key=True)
     name: str
@@ -118,7 +130,7 @@ class Document(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     kind: DocumentKind = Field(sa_column=Column(enum_type(DocumentKind), nullable=False))
     path: str  # Relative to data/; document contents are never stored here.
-    created_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=utc_now, sa_type=UTCDateTime)
 
     applications: list["Application"] = Relationship(
         back_populates="resume_document", passive_deletes="all"
@@ -150,12 +162,12 @@ class Application(Timestamped, table=True):
 
 class Job(Timestamped, table=True):
     id: int | None = Field(default=None, primary_key=True)
-    company: str
+    company: str = ""
     title: str
     url: str
     source: str | None = None
     location: str | None = None
-    description: str
+    description: str = ""
     ats_type: str | None = None
 
     application: Application | None = Relationship(back_populates="job", passive_deletes="all")
@@ -174,7 +186,7 @@ class StatusEvent(SQLModel, table=True):
     to_status: ApplicationStatus = Field(
         sa_column=Column(enum_type(ApplicationStatus), nullable=False)
     )
-    at: datetime = Field(default_factory=utc_now)
+    at: datetime = Field(default_factory=utc_now, sa_type=UTCDateTime)
     note: str | None = None
 
     application: Application = Relationship(back_populates="status_events")

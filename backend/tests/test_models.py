@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import Engine, text
@@ -29,6 +29,35 @@ def make_job() -> Job:
         url="https://example.com/jobs/1",
         description="Build fictional widgets.",
     )
+
+
+def test_job_can_be_created_from_url_and_title(session: Session) -> None:
+    job = Job(url="https://example.com/jobs/2", title="Widget engineer")
+    session.add(job)
+    session.commit()
+    session.refresh(job)
+    assert job.company == ""
+    assert job.description == ""
+
+
+@pytest.mark.parametrize("tz", [UTC, timezone(timedelta(hours=-5)), None])
+def test_timestamps_reload_as_utc(session: Session, tz: timezone | None) -> None:
+    timestamp = datetime(2026, 1, 2, 12, 30, tzinfo=tz)
+    expected = timestamp.replace(tzinfo=UTC) if tz is None else timestamp.astimezone(UTC)
+    job = Job(url="https://example.com/jobs/3", title="Engineer", created_at=timestamp)
+    document = Document(kind=DocumentKind.RESUME, path="out/example.pdf", created_at=timestamp)
+    event = StatusEvent(to_status=ApplicationStatus.SAVED, at=timestamp)
+    application = Application(job=job, resume_document=document, status_events=[event])
+    session.add(application)
+    session.commit()
+    session.expire_all()
+    for reloaded in (job.created_at, document.created_at, event.at):
+        assert reloaded.tzinfo is UTC
+        assert reloaded == expected
+    assert job.updated_at.tzinfo is UTC
+    assert application.created_at.tzinfo is UTC
+    stored = session.connection().execute(text("SELECT created_at FROM job")).scalar_one()
+    assert datetime.fromisoformat(stored) == expected.replace(tzinfo=None)
 
 
 def test_profile_answers_and_timestamps(session: Session) -> None:
