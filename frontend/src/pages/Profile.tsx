@@ -1,20 +1,26 @@
-import { Card, CardContent } from '@/components/ui/card'
+import { AnswersEditor } from '@/components/profile/AnswersEditor'
+import { ExperienceEditor } from '@/components/profile/ExperienceEditor'
+import { ProfileForm } from '@/components/profile/ProfileForm'
+import { SkillsEditor } from '@/components/profile/SkillsEditor'
 
 export function Profile() {
   return (
-    <section aria-labelledby="profile-title" className="space-y-6">
-      <h1 id="profile-title" className="text-3xl font-semibold tracking-tight">
-        Profile
-      </h1>
-      <Card>
-        <CardContent className="space-y-2">
-          <h2 className="font-medium">Your experience, in one place</h2>
-          <p className="text-sm text-muted-foreground">
-            Your profile, verified experience, skills, and reusable answers will
-            appear here.
-          </p>
-        </CardContent>
-      </Card>
+    <section aria-labelledby="profile-title" className="space-y-8">
+      <div>
+        <p className="mb-2 text-sm text-muted-foreground">
+          Your verified experience, in one place
+        </p>
+        <h1
+          id="profile-title"
+          className="text-3xl font-semibold tracking-tight"
+        >
+          Profile
+        </h1>
+      </div>
+      <ProfileForm />
+      <ExperienceEditor />
+      <SkillsEditor />
+      <AnswersEditor />
     </section>
   )
 }
