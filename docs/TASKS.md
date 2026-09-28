@@ -14,7 +14,7 @@ Owners: `claude` · `codex` · `—` (unclaimed)
 | T-003 | DB models + initial migration | 1 | T-001 | codex | done |
 | T-004 | Profile & experience API | 1 | T-003 | claude | done |
 | T-005 | Jobs & application status API | 1 | T-003 | codex | done |
-| T-006 | Dashboard UI | 1 | T-002, T-005 | codex | in-progress |
+| T-006 | Dashboard UI | 1 | T-002, T-005 | codex → claude | review |
 | T-007 | Profile editor UI | 1 | T-002, T-004 | claude | in-progress |
 | T-008 | Profile service layering cleanup | 1 | T-005 | — | todo |
 
@@ -163,7 +163,7 @@ Keep the summary table and the task details in sync.
 - **Review:** (claude sub-agent, 2026-09-27) Changes requested, then fixed in `15c706b`: adopted `app/api/errors.py`; services now raise domain exceptions and don't import the API layer; transitions now allow applying directly from saved/preparing/ready_for_review, ready_for_review → preparing, and offer → rejected/withdrawn (orchestrator default, open to user changes); `allowed_transitions` is included on application responses. Orchestrator verified: lint clean, 159 backend + 3 frontend tests, `schema.ts` covers all 14 routes, and a live API check of create, direct apply, 409 on an invalid transition, a typed 404 body and ordered UTC history.
 
 ### T-006 Dashboard UI
-- **Owner:** codex · **Status:** in-progress · **Depends on:** T-002, T-005
+- **Owner:** codex → claude · **Status:** review · **Depends on:** T-002, T-005
 - **Scope:** `frontend/src/pages/Dashboard*`, `frontend/src/pages/JobDetail*`, `frontend/src/components/jobs/**`
 - **Acceptance criteria:**
   - Dashboard: job table (company, title, status, updated) with status filter, plus a board view grouped by status.
@@ -171,6 +171,20 @@ Keep the summary table and the task details in sync.
   - Job detail: fields, status change control, and status history timeline.
   - Loading, empty, and error states; Vitest component tests for the form and status control.
 - **Handoff:**
+  - **Who:** Codex started this task and hit its usage limit (WIP commit `de30971`: query hooks, JobForm, StatusControl, History, Dashboard/JobDetail pages, shadcn components). Claude reviewed that work, kept its structure, and finished it.
+  - **What changed:**
+    - `components/jobs/queries.ts`: TanStack Query hooks over the typed `api` client (`useJobs(status)`, `useJob`, `useSaveJob` for POST/PUT, `useHistory`, `useChangeStatus`). All types come from `schema.ts` (`JobResponse`, `JobWrite`, `ApplicationResponse`, `ApplicationStatus`, `TransitionRequest`, `ErrorResponse`, `HTTPValidationError`). `apiErrorMessage()` shows the `detail` string of 404/409 bodies and each `{loc, msg}` of a 422 (the `body` prefix is dropped, e.g. `url: String should have at least 1 character`). Query keys live in `jobKeys`. A transition updates the cached job and, even on failure, refreshes the job lists and history.
+    - `StatusControl`: current status badge, a select that offers exactly `application.allowed_transitions`, an optional note, and a "closed" message when the list is empty. The transition table is not duplicated anywhere in the frontend; `presentation.ts` only holds display labels and the status order for the filter and board.
+    - `JobForm` (add and edit): title, company, URL, location, and a pasted description. It checks required fields itself (`noValidate`, `aria-invalid`, per-field messages), trims values, sends an empty location as `null`, and keeps `source`/`ats_type` on PUT, since PUT replaces the job.
+    - `Dashboard`: an "Add job" panel (goes to the new job's page after saving), a status filter that uses the API's `status` query, and a Table/Board toggle (`aria-pressed`). The table shows company, title (links to the detail page), a status badge, and the updated time. The board has one column per status, with a count per column. Loading, error (with retry), and empty states, with different empty text when a filter is on.
+    - `JobDetail` (`/jobs/:id`): the edit form, the status control, and a History timeline from `/api/applications/{id}/history`. Handles an invalid id, loading, and 404/error (shows the API's `detail`, with retry).
+    - Claude's changes to the WIP: renamed `useTransition` to `useChangeStatus` (it shadowed React's hook), added the shared `unwrap`/`apiErrorMessage` helpers and `jobKeys`, reworked form validation and accessibility, made the URL required (see Deviations), added timeline markers, formatted everything with Prettier (the WIP and the generated shadcn files failed `prettier --check`), and fixed dependencies (below).
+  - **Verification:** `make lint` passes (ruff, pyright 0 errors, ESLint 0 errors, tsc, Prettier). The only output is the 2 existing-style `react-refresh/only-export-components` warnings in the generated shadcn `badge.tsx`/`button.tsx`. `make test` passes: **159 backend and 12 frontend** (3 existing, 5 `JobForm.test.tsx`, 4 `StatusControl.test.tsx`). `pnpm --dir frontend build` passes. The component tests mock `fetch`: `@/api/client` is replaced by a real `openapi-fetch` client built with a mocked `fetch` and an absolute base URL, because openapi-fetch captures `fetch` when the client is created. They cover required fields, the POST and PUT bodies (including the pasted description), a 422 message, a 404 `detail`, offering only the allowed transitions, a closed application, a transition with a note, and a 409 `detail`. Live check: migrated a temporary SQLite DB in `/tmp`, then ran uvicorn and Vite against it. Ports 8000 and 5173 were already in use by other processes, so this used 8002 and 5174 with a throwaway Vite config (since deleted). Confirmed through the proxy: create, filter, a 409 on an invalid transition, a valid transition with a note, history, and a 404. Headless Chrome screenshots of the dashboard table and the job detail page (form, status control, timeline) looked right. Everything was stopped and cleaned up afterwards, and nothing was written under `data/`.
+  - **Deviations:**
+    - **URL is required in the form.** The brief said only the title is required, but the API's `JobWrite.url` is a non-empty string (T-005), so a blank URL would always get a 422. To make the URL optional, change `JobWrite.url` to `str = ""` in the backend (a separate backend task, then run `make types`), and drop `url` from `missingFields` in `JobForm.tsx`.
+    - `App.tsx` is unchanged. The existing `App.test.tsx` still passes; its dashboard render now shows the error state because nothing is mocked there.
+  - **Follow-ups:** no delete-job control yet (`DELETE /api/jobs/{id}` exists). The board is a read-only grouping, with no drag and drop; statuses change on the detail page. `components.json`/ESLint could exempt `src/components/ui` from `react-refresh/only-export-components` to silence the two warnings. Merging with T-007 may conflict in `package.json`, `pnpm-lock.yaml`, and shared `src/components/ui/*` files. Keep one copy of each component, then run `pnpm install` to regenerate the lockfile.
+  - **New dependencies / components:** runtime deps `radix-ui` (Slot and Label for shadcn), `class-variance-authority` (button/badge variants), and `lucide-react` (native-select chevron; `components.json` already names lucide). Codex's WIP had added an unused `cn` package, which Claude removed. shadcn components: `badge`, `button`, `input`, `label`, `native-select`, `table`, `textarea`. Test helper: `src/components/jobs/test-utils.tsx`.
 - **Review:**
 
 ### T-007 Profile editor UI

@@ -8,9 +8,14 @@ export function QueryError({
   retry: () => void
 }) {
   return (
-    <div role="alert" className="space-y-3 rounded-md border border-destructive p-4">
+    <div
+      role="alert"
+      className="space-y-3 rounded-md border border-destructive p-4"
+    >
       <p>{error.message}</p>
-      <Button variant="outline" onClick={retry}>Try again</Button>
+      <Button variant="outline" onClick={retry}>
+        Try again
+      </Button>
     </div>
   )
 }
