@@ -48,7 +48,8 @@ export function Dashboard() {
           aria-expanded={adding}
           aria-controls="add-job-panel"
         >
-          {adding ? 'Close form' : 'Add job'}
+          {/* A stable label: aria-expanded already says whether it's open. */}
+          New job
         </Button>
       </div>
       {adding && (

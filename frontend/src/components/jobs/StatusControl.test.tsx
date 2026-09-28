@@ -1,29 +1,16 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { paths } from '@/api/schema'
+import { describe, expect, it } from 'vitest'
 import { StatusControl } from './StatusControl'
 import {
-  firstRequest,
+  fetchMock,
   json,
   makeJob,
   renderWithQuery,
-  type FetchMock,
+  requestAt,
 } from './test-utils'
 
-// openapi-fetch captures `fetch` when the client is created, so the tests
-// build the client with a mocked fetch and an absolute base URL.
-const fetchMock: FetchMock = vi.hoisted(() => vi.fn())
-vi.mock('@/api/client', async () => {
-  const { default: createClient } = await import('openapi-fetch')
-  return {
-    api: createClient<paths>({ baseUrl: 'http://localhost', fetch: fetchMock }),
-  }
-})
-
 describe('StatusControl', () => {
-  beforeEach(() => fetchMock.mockReset())
-
   it('offers only the transitions the API allows', () => {
     const { application } = makeJob({
       application: {
@@ -74,7 +61,7 @@ describe('StatusControl', () => {
     await user.click(screen.getByRole('button', { name: 'Update status' }))
 
     expect(await screen.findByText('Status updated.')).toBeInTheDocument()
-    const request = firstRequest(fetchMock)
+    const request = requestAt()
     expect(request.method).toBe('POST')
     expect(new URL(request.url).pathname).toBe('/api/applications/3/transition')
     expect(await request.json()).toEqual({

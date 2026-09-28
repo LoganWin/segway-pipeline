@@ -1,12 +1,11 @@
 /**
- * Test helpers for the profile editors. Import this module before anything that
- * imports `@/api/client`: it installs a `fetch` mock (and a `Request` that
- * accepts the client's relative URLs) before the client captures them.
+ * Test helpers for the profile editors: an in-memory fake of the profile API
+ * that plugs into the shared `fetchMock` (see `src/test/api-mock.ts`).
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { createElement, type ReactElement } from 'react'
-import { vi } from 'vitest'
+import { fetchMock, json } from '@/test/api-mock'
 import type {
   Answer,
   Bullet,
@@ -16,28 +15,8 @@ import type {
   Profile,
   ProfileInput,
   Skill,
+  SkillInput,
 } from './api'
-
-const BaseRequest = globalThis.Request
-globalThis.Request = class extends BaseRequest {
-  constructor(input: RequestInfo | URL, init?: RequestInit) {
-    super(
-      typeof input === 'string' ? new URL(input, 'http://localhost') : input,
-      init,
-    )
-  }
-}
-
-// Radix's Checkbox measures itself; jsdom has no ResizeObserver.
-globalThis.ResizeObserver ??= class {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-
-export const fetchMock = vi.fn<(request: Request) => Promise<Response>>()
-globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) =>
-  fetchMock(input instanceof Request ? input : new Request(input, init))
 
 export type RecordedRequest = { method: string; path: string; body: unknown }
 
@@ -50,14 +29,6 @@ type Override = {
 
 const TIMESTAMP = '2026-01-01T00:00:00Z'
 const stamps = { created_at: TIMESTAMP, updated_at: TIMESTAMP }
-
-function json(status: number, body: unknown): Response {
-  if (status === 204) return new Response(null, { status })
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
 
 function experienceFrom(input: ExperienceInput, id: number): Experience {
   return {
@@ -118,14 +89,14 @@ export function createFakeApi(
     )
     if (override !== -1) {
       const [o] = overrides.splice(override, 1)
-      return json(o!.status, o!.body)
+      return json(o!.body, o!.status)
     }
-    const notFound = json(404, { detail: 'Not found' })
+    const notFound = json({ detail: 'Not found' }, 404)
     let m: RegExpMatchArray | null
 
     if (path === '/api/profile') {
       if (method === 'GET')
-        return state.profile ? json(200, state.profile) : notFound
+        return state.profile ? json(state.profile) : notFound
       const input = body as ProfileInput
       state.profile = {
         ...stamps,
@@ -136,13 +107,13 @@ export function createFakeApi(
         links: input.links ?? [],
         work_authorization: input.work_authorization ?? null,
       }
-      return json(200, state.profile)
+      return json(state.profile)
     }
     if (path === '/api/experiences') {
-      if (method === 'GET') return json(200, state.experiences)
+      if (method === 'GET') return json(state.experiences)
       const created = experienceFrom(body as ExperienceInput, nextId++)
       state.experiences.push(created)
-      return json(201, created)
+      return json(created, 201)
     }
     if ((m = path.match(/^\/api\/experiences\/(\d+)$/))) {
       const id = Number(m[1])
@@ -151,22 +122,21 @@ export function createFakeApi(
       if (method === 'DELETE') {
         state.experiences.splice(index, 1)
         state.bullets = state.bullets.filter((b) => b.experience_id !== id)
-        return json(204, null)
+        return json(null, 204)
       }
       const updated = experienceFrom(body as ExperienceInput, id)
       state.experiences[index] = updated
-      return json(200, updated)
+      return json(updated)
     }
     if ((m = path.match(/^\/api\/experiences\/(\d+)\/bullets$/))) {
       const experienceId = Number(m[1])
       if (method === 'GET')
         return json(
-          200,
           state.bullets.filter((b) => b.experience_id === experienceId),
         )
       const created = bulletFrom(body as BulletInput, nextId++, experienceId)
       state.bullets.push(created)
-      return json(201, created)
+      return json(created, 201)
     }
     if ((m = path.match(/^\/api\/experiences\/(\d+)\/bullets\/(\d+)$/))) {
       const experienceId = Number(m[1])
@@ -177,11 +147,33 @@ export function createFakeApi(
       if (index === -1) return notFound
       if (method === 'DELETE') {
         state.bullets.splice(index, 1)
-        return json(204, null)
+        return json(null, 204)
       }
       const updated = bulletFrom(body as BulletInput, id, experienceId)
       state.bullets[index] = updated
-      return json(200, updated)
+      return json(updated)
+    }
+    const skillPath = path.match(/^\/api\/skills(?:\/(\d+))?$/)
+    if (skillPath && (skillPath[1] ? method === 'PUT' : method === 'POST')) {
+      const existingId = skillPath[1] ? Number(skillPath[1]) : undefined
+      const index = state.skills.findIndex((s) => s.id === existingId)
+      if (existingId !== undefined && index === -1) return notFound
+      const input = body as SkillInput
+      // Like the API: skill names are unique.
+      if (
+        state.skills.some((s) => s.name === input.name && s.id !== existingId)
+      )
+        return json({ detail: `Skill '${input.name}' already exists` }, 409)
+      const skill: Skill = {
+        ...stamps,
+        id: existingId ?? nextId++,
+        name: input.name,
+        category: input.category ?? null,
+        proficiency: input.proficiency ?? null,
+      }
+      if (existingId === undefined) state.skills.push(skill)
+      else state.skills[index] = skill
+      return json(skill, existingId === undefined ? 201 : 200)
     }
     if ((m = path.match(/^\/api\/skills\/(\d+)$/)) && method === 'DELETE') {
       const id = Number(m[1])
@@ -191,13 +183,11 @@ export function createFakeApi(
         ...b,
         skill_ids: b.skill_ids.filter((s) => s !== id),
       }))
-      return json(204, null)
+      return json(null, 204)
     }
-    if (path === '/api/skills' && method === 'GET')
-      return json(200, state.skills)
-    if (path === '/api/answers' && method === 'GET')
-      return json(200, state.answers)
-    return json(501, { detail: `Fake API has no route for ${method} ${path}` })
+    if (path === '/api/skills' && method === 'GET') return json(state.skills)
+    if (path === '/api/answers' && method === 'GET') return json(state.answers)
+    return json({ detail: `Fake API has no route for ${method} ${path}` }, 501)
   }
 
   fetchMock.mockImplementation(async (request) => {

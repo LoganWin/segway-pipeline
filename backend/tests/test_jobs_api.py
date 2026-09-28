@@ -143,14 +143,27 @@ def test_filters_combine_and_sort_by_last_update(client: TestClient) -> None:
     assert client.get("/api/jobs", params={"status": "unknown"}).status_code == 422
 
 
+def test_create_job_with_only_a_title(client: TestClient) -> None:
+    response = client.post("/api/jobs", json={"title": "Title Only"})
+    assert response.status_code == 201
+    job = response.json()
+    assert job["title"] == "Title Only"
+    assert job["url"] == ""
+    assert job["application"]["status"] == "saved"
+    assert client.get(f"/api/jobs/{job['id']}").json()["url"] == ""
+
+    blank = client.post("/api/jobs", json={"title": "Blank URL", "url": "   "})
+    assert blank.status_code == 201
+    assert blank.json()["url"] == ""
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {},
-        {"title": "Missing URL"},
         {"url": "https://example.test"},
         {"title": " ", "url": "https://example.test"},
-        {"title": "Example", "url": ""},
+        {"title": "Example", "url": None},
         {"title": "Example", "url": "https://example.test", "company": None},
         {"title": "Example", "url": "https://example.test", "status": "applied"},
         {"title": "Example", "url": "https://example.test", "application": {"status": "applied"}},

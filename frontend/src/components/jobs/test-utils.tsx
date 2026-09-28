@@ -1,17 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import type { ReactElement } from 'react'
-import type { Mock } from 'vitest'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import type { Job } from './queries'
 
-export type FetchMock = Mock<(request: Request) => Promise<Response>>
-
-export function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  })
-}
+export { fetchMock, json, requestAt, requestLines } from '@/test/api-mock'
 
 export function renderWithQuery(ui: ReactElement) {
   const client = new QueryClient({
@@ -48,8 +41,14 @@ export function makeJob(overrides: Partial<Job> = {}): Job {
   }
 }
 
-export function firstRequest(fetchMock: FetchMock): Request {
-  const call = fetchMock.mock.calls[0]
-  if (!call) throw new Error('fetch was not called')
-  return call[0]
+/** Renders a page at `path`, matched against the route `pattern`. */
+export function renderRoute(ui: ReactElement, pattern: string, path: string) {
+  return renderWithQuery(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path={pattern} element={ui} />
+        <Route path="*" element={<p>Navigated away</p>} />
+      </Routes>
+    </MemoryRouter>,
+  )
 }
